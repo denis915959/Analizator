@@ -2,6 +2,8 @@
 #include <ESP8266_LCD_1602_RUS.h>
 #include <font_LCD_1602_RUS.h>
 
+const int voltage_div = 33; // пин делителя напряжения
+
 
 class Display{
   private:
@@ -225,17 +227,124 @@ class Display{
   }
 };
 
+int contrast_border(float medium){ // сравнение с порогом
+  float percent_border[100];
+  int low_border = 2067; //нижняя граница (8.5 В)
+  int high_border = 3065;//3050;//3111; //верхняя граница (ее надо увеличить после подключения светодиода) (4.2)
+  float volt_1 = (high_border - low_border)/4.1; // 3.9
+  float medium_volts = medium/volt_1; // /3 убрать, если все ок. для этого внедрить в массив структур границы x3
+  return(voltage_to_percent(medium_volts));
+  
+  //float step = (high_border - low_border)/99; // 100?
+  /*for(int i=0; i<100; i++){ // это в метод begin или конструктор
+    percent_border[i]= low_border + step*i;
+  }*/
+  /*int num =(int)((medium - low_border)/step) + 1; // номер процента. возможно, убрат +1?
+  if(num<=100){
+    return(num);
+  } else {
+    return(100);
+  }*/
+}
+
+struct Voltage_Percent {
+    float voltage;
+    float percent;
+};
+
+const Voltage_Percent voltage_percent_list[] = {
+    {12.6, 100.0}, // 12.6
+    {11.8,  80.0}, // 12
+    {11.2,  60.0},
+    {10.8,  40.0},
+    {10.3,  20.0},
+    {8.5,   0.0}
+};
+const int tableSize = 6;//sizeof(voltage_percent_list) / sizeof(Voltage_Percent[0]);
+
+int voltage_to_percent(float voltage) {
+    // Граничные случаи
+    if (voltage >= voltage_percent_list[0].voltage) return 100;
+    if (voltage <= voltage_percent_list[tableSize - 1].voltage) return 0.0;
+
+    // Поиск интервала для интерполяции
+    for (int i = 0; i < tableSize - 1; ++i) {
+        if (voltage <= voltage_percent_list[i].voltage && voltage > voltage_percent_list[i + 1].voltage) {
+            return ((int)(voltage_percent_list[i].percent + (voltage - voltage_percent_list[i].voltage) * 
+                  (voltage_percent_list[i + 1].percent - voltage_percent_list[i].percent) / 
+                  (voltage_percent_list[i + 1].voltage - voltage_percent_list[i].voltage)));
+        }
+    }
+
+    return 0; // На случай ошибки
+}
+
+
+int medium_iter=200; // количество усреднений
+int charge=-11;
 Display display; // конструктор не принимает параметров, значит скобки не нужны
 void setup() {
+  pinMode(voltage_div, INPUT);
   display.begin(); 
+  delay(500);
+  int sum_first = 0;
+  for(int i=0; i<75; i++){
+    sum_first+=analogRead(voltage_div);
+    delay(10);
+  }
+  float medium = sum_first/75;
+  charge = contrast_border(medium); // сделать глобальной
+  display.print_battery(charge);
+  Serial.begin(115200);
+
 }
+
 int myArray[] = {3, 3};
 void loop() {
-  static int charge=100; // будет инкремент нормально работать со static!
+  //static int charge=-11; // будет инкремент нормально работать со static!
   static int com = 0;
   static int time_warm = 200;
   static int time_izmer = 0;
-  // put your main code here, to run repeatedly:
+  static int loop_counter = 0;
+  static int sum = 0;
+
+  if(loop_counter%medium_iter == 0){
+    if(loop_counter==0){
+      /*int sum_first = 0;
+      for(int i=0; i<75; i++){
+        sum_first+=analogRead(voltage_div);
+        delay(10);
+      }
+      float medium = sum_first/75;
+      charge = contrast_border(medium); // сделать глобальной
+      display.print_battery(charge);*/
+      int k=0;
+    }
+    else{
+      float medium = sum/medium_iter;
+      int charge_tmp = contrast_border(medium);
+      if(charge_tmp < charge){
+        charge = charge_tmp;
+        display.print_battery(charge);
+      }
+      sum = 0;
+    }
+  }
+  sum+=analogRead(voltage_div);
+
+  /*Serial.println(voltage_to_percent(4.2)); // 100%
+  Serial.println(voltage_to_percent(4.1)); // 90%
+  Serial.println(voltage_to_percent(4.0)); // 80%
+  Serial.println(voltage_to_percent(3.9)); // 73%
+  Serial.println(voltage_to_percent(3.8)); // 66%
+  Serial.println(voltage_to_percent(3.7)); // 60%
+  Serial.println(voltage_to_percent(3.6)); // 50%
+  Serial.println(voltage_to_percent(3.5)); // 40%
+  Serial.println(voltage_to_percent(3.4)); // 30%
+  Serial.println(voltage_to_percent(3.3)); // 20%
+  Serial.println(voltage_to_percent(2.9)); // 10% // надо сделать диапазон 2.9-3.3 вместо 2.5-3.3
+  delay(10000);*/
+  
   if(com==0){
     myArray[0] = time_warm;
   }
@@ -252,13 +361,17 @@ void loop() {
     myArray[0] = 3;
     myArray[1] = 3;
   }
- display.print_message(charge, com, myArray);//(int charge, int num_message){
-    charge --;
+ 
+    /*charge --;
     time_warm--;
-    time_izmer++;
+    time_izmer++;*/
 
+  if(loop_counter%30 == 0){// раскомментировать!
+    display.print_message(charge, com, myArray);
+    com++;
+  }
   
-  if(charge==0){
+  /*if(charge==0){
   charge = 100;}
   for(int i=0; i<7; i++){ // 9
     delay(1000);
@@ -270,5 +383,10 @@ void loop() {
   }
   com ++;
   com = com%10;
-  delay(3000);
+  delay(3000);*/
+  if(com>9){
+    com=0;
+  }
+  delay(160);
+  loop_counter++;
 }

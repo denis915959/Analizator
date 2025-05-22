@@ -2,6 +2,10 @@
 #include <FS.h>
 #include <SD.h>
 #include <SPI.h>
+#include <ESP8266_LCD_1602_RUS.h>
+#include <font_LCD_1602_RUS.h>
+
+LCD_1602_RUS lcd(0x27, 20, 4);
 
 #define I2C_DEV_ADDR_1 0x09
 #define I2C_DEV_ADDR_2 0x55
@@ -189,6 +193,26 @@ int converter_to_number(char* array, int size) {
 }
 
 void setup() {
+  String str;
+  str = ". Hexadecimal";
+  lcd.init(); //Инициализация LCD по умолчанию для ESP8266 (4 - SDA, 5 - SCL)
+
+  lcd.backlight();  // Печать сообщения на LCD
+  lcd.setCursor(0, 0);         // Курсор: 0-й столбец, 1-я строка
+  lcd.print("Заряд: ");
+  lcd.setCursor(0, 1);
+  lcd.print("Проверка устройства");
+
+  /*lcd.setCursor(0, 1);
+  lcd.print(15, HEX);
+  lcd.print(str);
+  lcd.setCursor(0, 2);
+  lcd.print(1, DEC);
+  lcd.print(". Десятичная");
+  lcd.setCursor(0, 3);
+  lcd.print(15, HEX);
+  lcd.print(str);*/
+
   pinMode(rele1_pin, OUTPUT); // первый
   pinMode(rele2_pin, OUTPUT); // второй
   pinMode(rele3_pin, OUTPUT); // третий
@@ -226,7 +250,15 @@ void setup() {
 int data_1[5];
 int data_2[5];
 int data_3[5];
+
+int n=0;
 void loop() { // данные не пишутся на флешку перед прогревом. попробовать писать данные на флешку
+lcd.setCursor(0, 0);         // Курсор: 0-й столбец, 1-я строка
+  /*lcd.print("заряд: ");
+  lcd.setCursor(0, 1);
+  lcd.print("проверка устройства");*/
+
+
   if(loop_counter == 0){// этот блок вызывается только на первой итерации цикла loop
     delay(first_warming_time*1000);
   }
@@ -267,19 +299,177 @@ void loop() { // данные не пишутся на флешку перед �
     {
       write_sd_flag = true;
     }
-    //проверка данных с датчика
-    // если 15 по первому, то: first_reset=true, reset = true
-    // если 15 по второму, то: second_reset=true, reset = true
-    // если 15 по третьему, то: third_reset=true, reset = true, 
-    // if(reset == true){ loop_counter = 0; if(first_reset==true){первое реле выключить}; if(second_reset==true){второе реле выключить}; if(third_reset==true){третье реле выключить}; delay(10*1000); все три реле снова включить;  delay(first_warming_time*1000);}
-    // if(reset == false){break;}
   }
+
+
+
+
+
+
+
+
+/*
+byte AChar[8] = {
+  0b01110,
+  0b10001,
+  0b10001,
+  0b11111,
+  0b10001,
+  0b10001,
+  0b10001,
+  0b00000
+};
+
+
+
+byte BChar[8] = {
+  0b11110,
+  0b10001,
+  0b10001,
+  0b11110,
+  0b10001,
+  0b10001,
+  0b11110,
+  0b00000
+};
+
+
+
+
+byte EChar[8] = {
+  0b11111,
+  0b10000,
+  0b10000,
+  0b11110,
+  0b10000,
+  0b10000,
+  0b11111,
+  0b00000
+};
+
+
+
+
+
+
+// Продолжение для остальных русских букв...
+byte KChar[8] = {
+  0b10001,
+  0b10010,
+  0b10100,
+  0b11000,
+  0b10100,
+  0b10010,
+  0b10001,
+  0b00000
+};
+
+
+
+
+
+byte OChar[8] = {
+  0b01110,
+  0b10001,
+  0b10001,
+  0b10001,
+  0b10001,
+  0b10001,
+  0b01110,
+  0b00000
+};
+
+byte RusPChar[8] = {
+  0b11111,
+  0b10001,
+  0b10001,
+  0b10001,
+  0b10001,
+  0b10001,
+  0b10001,
+  0b00000
+};
+
+byte PChar[8] = {
+  0b11110,
+  0b10001,
+  0b10001,
+  0b11110,
+  0b10000,
+  0b10000,
+  0b10000,
+  0b00000
+};
+
+
+// Русские строчные буквы (аналогично, пример для нескольких)
+byte aChar[8] = {
+  0b00000,
+  0b00000,
+  0b01110,
+  0b00001,
+  0b01111,
+  0b10001,
+  0b01111,
+  0b00000
+};
+
+  lcd.createChar(0, AChar);
+  lcd.createChar(1, BChar);
+  lcd.createChar(2, EChar);
+  lcd.createChar(3, KChar);
+  lcd.createChar(4, OChar);
+  lcd.createChar(5, RusPChar); // П
+  lcd.createChar(6, PChar);
+  lcd.createChar(7, aChar);
+*/
+
+
+
+
+
+
+
+
   switch(loop_counter) { // если loop_counter<9, читаем данные. если loop_counter = 10, то command = 5
   // if(loop_counter==11) command = 4 (здесь более развенуто); if(loop_counter==12) command = 2(более развернуто); 
     case read_between_warm: // 0
+      //lcd.setCursor(0, 1);
+      //lcd.print("                   ");
+      //tmp_flag = true;
+      /*lcd.setCursor(0, 1);
+      lcd.print("Проверка завершена");// закомментировал - не помогло
+      lcd.setCursor(0, 2);
+      lcd.print("Прогрев завершится");
+      lcd.setCursor(0, 3);
+      lcd.print("через");*/
+      //lcd.clear();
+      //lcd.setCursor(0, 1);
+      /*lcd.command(0x20); // Сброс в базовый режим
+  delay(5);
+  lcd.init(); // Повторная инициализация*/ // не помогло
+  /*lcd.write(5);
+  lcd.write(6);
+  lcd.write(4);
+  lcd.write(1);
+  lcd.write(2);
+  lcd.write(6);
+  lcd.write(3);
+  lcd.write(0);*/
+  lcd.clear(); // Полная очистка экрана
+  delay(10);
+  lcd.setCursor(0, 0);
+  lcd.print("заршд");//"Заряд: ");
+  lcd.print("%");
+  lcd.setCursor(0, 1);
+  //lcd.print("завершена");
+  lcd.print("продерив чадервеча");//"Проверка завершена");
+  lcd.setCursor(0, 2);
+  lcd.print("прогрев завершится");//"Прогрев завершится");
+  lcd.setCursor(0, 3);
+  lcd.print("через: ");
       read_co2 = false;
       command = 5; // прогрев
-      //write_data_to_sd(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
       break;
     case (read_between_warm + 1): // 1 
       read_co2 = false;
@@ -310,6 +500,22 @@ void loop() { // данные не пишутся на флешку перед �
       read_co2 = true;
       command = 1;
   }
+
+
+
+  n = (n + 1) % 101;  // Пример изменения n от 0 до 100
+  if(n==0){
+    lcd.setCursor(7, 0);         // Позиция после "Заряд: "
+    lcd.print("    "); // затирает старую надпись
+  }
+  lcd.setCursor(7, 0);         // Позиция после "Заряд: "
+  lcd.print(n, DEC);           // Явное указание формата DEC
+  lcd.print("%");
+
+
+
+
+
 
   // Создание запроса на ардуины
   char* message = new char[5];
