@@ -107,41 +107,41 @@ int get_float_size(float ppm){ // выводит длину целой част�
   return(size);
 }
 
-void write_data_to_sd(float ppm_1, float ppm_2, float ppm_3, float medium_ppm,
-                      float temp_1, float temp_2, float temp_3, float medium_temp,
-                      int accuracy_1, int accuracy_2, int accuracy_3,
-                      int min_co2_1, int min_co2_2, int min_co2_3, float time_1) {
+void write_data_to_sd(float ppm_1, float ppm_2, /*float ppm_3,*/ float medium_ppm,
+                      float temp_1, float temp_2, /*float temp_3,*/ float medium_temp,
+                      int accuracy_1, int accuracy_2, /*int accuracy_3,*/
+                      int min_co2_1, int min_co2_2, /*int min_co2_3,*/ float time_1) {
   static char data_array[150];
-  static char array_ppm1[9], array_ppm2[9], array_ppm3[9], array_medium_ppm[9];
-  static char array_temp1[9], array_temp2[9], array_temp3[9], array_medium_temp[9];
-  static char array_accuracy1[9], array_accuracy2[9], array_accuracy3[9];
-  static char array_min_co2_1[9], array_min_co2_2[9], array_min_co2_3[9];
+  static char array_ppm1[9], array_ppm2[9], /*array_ppm3[9],*/ array_medium_ppm[9];
+  static char array_temp1[9], array_temp2[9], /*array_temp3[9],*/ array_medium_temp[9];
+  static char array_accuracy1[9], array_accuracy2[9]/*, array_accuracy3[9]*/;
+  static char array_min_co2_1[9], array_min_co2_2[9]/*, array_min_co2_3[9]*/;
   static char array_time[9];
 
   // Преобразуем числа в строки
   dtostrf(ppm_1, 4, 3, array_ppm1);
   dtostrf(ppm_2, 4, 3, array_ppm2);
-  dtostrf(ppm_3, 4, 3, array_ppm3);
+  /*dtostrf(ppm_3, 4, 3, array_ppm3);*/
   dtostrf(medium_ppm, 4, 3, array_medium_ppm);
   dtostrf(temp_1, 4, 3, array_temp1);
   dtostrf(temp_2, 4, 3, array_temp2);
-  dtostrf(temp_3, 4, 3, array_temp3);
+  /*dtostrf(temp_3, 4, 3, array_temp3);*/
   dtostrf(medium_temp, 4, 3, array_medium_temp);
   dtostrf(accuracy_1, 4, 3, array_accuracy1);
   dtostrf(accuracy_2, 4, 3, array_accuracy2);
-  dtostrf(accuracy_3, 4, 3, array_accuracy3);
+  /*dtostrf(accuracy_3, 4, 3, array_accuracy3);*/
   dtostrf(min_co2_1, 4, 3, array_min_co2_1);
   dtostrf(min_co2_2, 4, 3, array_min_co2_2);
-  dtostrf(min_co2_3, 4, 3, array_min_co2_3);
+  /*dtostrf(min_co2_3, 4, 3, array_min_co2_3);*/
   dtostrf(time_1, 4, 3, array_time);
 
   // Формируем строку для записи
   snprintf(data_array, sizeof(data_array),
-           "%s;%s;%s;%s;%s;%s;%s;%s;%s;%s;%s;%s;%s;%s;%s",
-           array_ppm1, array_ppm2, array_ppm3, array_medium_ppm,
-           array_temp1, array_temp2, array_temp3, array_medium_temp,
-           array_accuracy1, array_accuracy2, array_accuracy3,
-           array_min_co2_1, array_min_co2_2, array_min_co2_3, array_time);
+           "%s;%s;%s;%s;%s;%s;%s;%s;%s;%s;%s;"/*%s;%s;%s;%s"*/,
+           array_ppm1, array_ppm2, /*array_ppm3,*/ array_medium_ppm,
+           array_temp1, array_temp2, /*array_temp3,*/ array_medium_temp,
+           array_accuracy1, array_accuracy2, /*array_accuracy3,*/
+           array_min_co2_1, array_min_co2_2, /*array_min_co2_3,*/ array_time);
 
   // Записываем данные в файл
   appendFile(SD, path, data_array, true);
@@ -244,7 +244,7 @@ void setup() {
     Serial.println("UNKNOWN");
   }
 
-  appendFile(SD, path, "CO2_1;CO2_2;CO2_3;CO2_medium;Temp_1;Temp_2;Temp_3;Temp_medium;Accuracy_1;Accuracy_2;Accuracy_3;Min_CO2_1;Min_CO2_2;Min_CO2_3; time", true);
+  appendFile(SD, path, "CO2_1;CO2_2;CO2_medium;Temp_1;Temp_2;Temp_medium;Accuracy_1;Accuracy_2;Min_CO2_1;Min_CO2_2; time"/*"CO2_1;CO2_2;CO2_3;CO2_medium;Temp_1;Temp_2;Temp_3;Temp_medium;Accuracy_1;Accuracy_2;Accuracy_3;Min_CO2_1;Min_CO2_2;Min_CO2_3; time"*/, true);
 }
 
 int data_1[5];
@@ -253,8 +253,8 @@ int data_3[5];
 
 int n=0;
 void loop() { // данные не пишутся на флешку перед прогревом. попробовать писать данные на флешку
-lcd.setCursor(0, 0);         // Курсор: 0-й столбец, 1-я строка
-  /*lcd.print("заряд: ");
+/*lcd.setCursor(0, 0);         // Курсор: 0-й столбец, 1-я строка
+  lcd.print("заряд: ");
   lcd.setCursor(0, 1);
   lcd.print("проверка устройства");*/
 
@@ -279,7 +279,7 @@ lcd.setCursor(0, 0);         // Курсор: 0-й столбец, 1-я стро
       third_reset = true;
       reset = true;
     }
-    if(reset == true){
+    if(reset == true){ // здесь добавить блок отправки команды на ардуино, команда 11 
       loop_counter = 0; 
       if(first_reset==true){
         digitalWrite(rele1_pin, LOW);
@@ -295,135 +295,28 @@ lcd.setCursor(0, 0);         // Курсор: 0-й столбец, 1-я стро
       digitalWrite(rele2_pin, HIGH);
       digitalWrite(rele3_pin, HIGH);
       delay(first_warming_time*1000);
-    } else
-    {
+    } else{
       write_sd_flag = true;
     }
+
+    // этот блок надо доработать
+    /*char* message = new char[5]; 
+    int command =-1;// другое ввести
+    converter_to_array(message, command, warming_time); // элемент 1 - command. Результат записывается в message
+    int size_send_message = 5;
+
+    // Отправка запроса на Ардуино 2
+    Wire.beginTransmission(I2C_DEV_ADDR_2);
+    for (int i = 0; i < size_send_message; i++){
+      Wire.write(message[i]);
+    }
+
+    // Получение ответа от Ардуино 2
+    while(Wire.endTransmission(true) != 0){
+      Serial.println("Error 2");
+    }
+    uint8_t bytesReceived = Wire.requestFrom(I2C_DEV_ADDR_2, 9); // Чтение 9 байт с slave*/
   }
-
-
-
-
-
-
-
-
-/*
-byte AChar[8] = {
-  0b01110,
-  0b10001,
-  0b10001,
-  0b11111,
-  0b10001,
-  0b10001,
-  0b10001,
-  0b00000
-};
-
-
-
-byte BChar[8] = {
-  0b11110,
-  0b10001,
-  0b10001,
-  0b11110,
-  0b10001,
-  0b10001,
-  0b11110,
-  0b00000
-};
-
-
-
-
-byte EChar[8] = {
-  0b11111,
-  0b10000,
-  0b10000,
-  0b11110,
-  0b10000,
-  0b10000,
-  0b11111,
-  0b00000
-};
-
-
-
-
-
-
-// Продолжение для остальных русских букв...
-byte KChar[8] = {
-  0b10001,
-  0b10010,
-  0b10100,
-  0b11000,
-  0b10100,
-  0b10010,
-  0b10001,
-  0b00000
-};
-
-
-
-
-
-byte OChar[8] = {
-  0b01110,
-  0b10001,
-  0b10001,
-  0b10001,
-  0b10001,
-  0b10001,
-  0b01110,
-  0b00000
-};
-
-byte RusPChar[8] = {
-  0b11111,
-  0b10001,
-  0b10001,
-  0b10001,
-  0b10001,
-  0b10001,
-  0b10001,
-  0b00000
-};
-
-byte PChar[8] = {
-  0b11110,
-  0b10001,
-  0b10001,
-  0b11110,
-  0b10000,
-  0b10000,
-  0b10000,
-  0b00000
-};
-
-
-// Русские строчные буквы (аналогично, пример для нескольких)
-byte aChar[8] = {
-  0b00000,
-  0b00000,
-  0b01110,
-  0b00001,
-  0b01111,
-  0b10001,
-  0b01111,
-  0b00000
-};
-
-  lcd.createChar(0, AChar);
-  lcd.createChar(1, BChar);
-  lcd.createChar(2, EChar);
-  lcd.createChar(3, KChar);
-  lcd.createChar(4, OChar);
-  lcd.createChar(5, RusPChar); // П
-  lcd.createChar(6, PChar);
-  lcd.createChar(7, aChar);
-*/
-
 
 
 
@@ -434,40 +327,7 @@ byte aChar[8] = {
   switch(loop_counter) { // если loop_counter<9, читаем данные. если loop_counter = 10, то command = 5
   // if(loop_counter==11) command = 4 (здесь более развенуто); if(loop_counter==12) command = 2(более развернуто); 
     case read_between_warm: // 0
-      //lcd.setCursor(0, 1);
-      //lcd.print("                   ");
-      //tmp_flag = true;
-      /*lcd.setCursor(0, 1);
-      lcd.print("Проверка завершена");// закомментировал - не помогло
-      lcd.setCursor(0, 2);
-      lcd.print("Прогрев завершится");
-      lcd.setCursor(0, 3);
-      lcd.print("через");*/
-      //lcd.clear();
-      //lcd.setCursor(0, 1);
-      /*lcd.command(0x20); // Сброс в базовый режим
-  delay(5);
-  lcd.init(); // Повторная инициализация*/ // не помогло
-  /*lcd.write(5);
-  lcd.write(6);
-  lcd.write(4);
-  lcd.write(1);
-  lcd.write(2);
-  lcd.write(6);
-  lcd.write(3);
-  lcd.write(0);*/
-  lcd.clear(); // Полная очистка экрана
-  delay(10);
-  lcd.setCursor(0, 0);
-  lcd.print("заршд");//"Заряд: ");
-  lcd.print("%");
-  lcd.setCursor(0, 1);
-  //lcd.print("завершена");
-  lcd.print("продерив чадервеча");//"Проверка завершена");
-  lcd.setCursor(0, 2);
-  lcd.print("прогрев завершится");//"Прогрев завершится");
-  lcd.setCursor(0, 3);
-  lcd.print("через: ");
+
       read_co2 = false;
       command = 5; // прогрев
       break;
@@ -503,14 +363,14 @@ byte aChar[8] = {
 
 
 
-  n = (n + 1) % 101;  // Пример изменения n от 0 до 100
+  /*n = (n + 1) % 101;  // Пример изменения n от 0 до 100
   if(n==0){
     lcd.setCursor(7, 0);         // Позиция после "Заряд: "
     lcd.print("    "); // затирает старую надпись
   }
   lcd.setCursor(7, 0);         // Позиция после "Заряд: "
   lcd.print(n, DEC);           // Явное указание формата DEC
-  lcd.print("%");
+  lcd.print("%");*/
 
 
 
@@ -522,8 +382,8 @@ byte aChar[8] = {
   converter_to_array(message, command, warming_time); // элемент 1 - command. Результат записывается в message
   int size_send_message = 5;
 
-  Serial.print("loop counter = ");
-  Serial.println(loop_counter);
+  /*Serial.print("loop counter = ");
+  Serial.println(loop_counter);*/
 
   // Отправка запроса на Ардуино 1
   Wire.beginTransmission(I2C_DEV_ADDR_1);
@@ -589,7 +449,7 @@ byte aChar[8] = {
     counter_for_medium_2++;
   }
 
-  // Отправка запроса на Ардуино 3
+  /*// Отправка запроса на Ардуино 3
   Wire.beginTransmission(I2C_DEV_ADDR_3);
   for (int i = 0; i < size_send_message; i++){
     Wire.write(message[i]);
@@ -619,10 +479,10 @@ byte aChar[8] = {
     accuracy_3 = accuracy;
     min_co2_3 = min_co2;
     counter_for_medium_3++;
-  }
+  }*/
 
   // Усреднение данных
-  if((counter_for_medium_1 >= 5) && (counter_for_medium_2 >= 5) && (counter_for_medium_3 >= 5)) {
+  if((counter_for_medium_1 >= 5) && (counter_for_medium_2 >= 5) /*&& (counter_for_medium_3 >= 5)*/) {
     ppm_1_medium = ppm_1_sum / counter_for_medium_1;
     temp_1_medium = temp_1_sum / counter_for_medium_1;
     ppm_1_sum = 0;
@@ -635,34 +495,28 @@ byte aChar[8] = {
     temp_2_sum = 0;
     counter_for_medium_2 = 0;
 
-    ppm_3_medium = ppm_3_sum / counter_for_medium_3;
+    /*ppm_3_medium = ppm_3_sum / counter_for_medium_3;
     temp_3_medium = temp_3_sum / counter_for_medium_3;
     ppm_3_sum = 0;
     temp_3_sum = 0;
-    counter_for_medium_3 = 0;
+    counter_for_medium_3 = 0;*/
 
-    ppm_common = (ppm_1_medium + ppm_2_medium + ppm_3_medium) / 3;
-    temp_common = (temp_1_medium + temp_2_medium + temp_3_medium) / 3;
+    ppm_common = (ppm_1_medium + ppm_2_medium/* + ppm_3_medium*/) / 2;//3;
+    temp_common = (temp_1_medium + temp_2_medium/* + temp_3_medium*/) / 2;//3;
     
     if(loop_counter < read_between_warm){
       data_1[(int)(loop_counter/5)] = ppm_1_medium;
       data_2[(int)(loop_counter/5)] = ppm_2_medium;
-      data_3[(int)(loop_counter/5)] = ppm_3_medium;
+      //data_3[(int)(loop_counter/5)] = ppm_3_medium;
     }
     if(write_sd_flag){
-      write_data_to_sd(ppm_1_medium, ppm_2_medium, ppm_3_medium, ppm_common,
-                     temp_1_medium, temp_2_medium, temp_3_medium, temp_common,
-                     accuracy_1, accuracy_2, accuracy_3,
-                     min_co2_1, min_co2_2, min_co2_3, time_s);
+      write_data_to_sd(ppm_1_medium, ppm_2_medium, /*ppm_3_medium, */ppm_common,
+                     temp_1_medium, temp_2_medium, /*temp_3_medium, */temp_common,
+                     accuracy_1, accuracy_2, /*accuracy_3,*/
+                     min_co2_1, min_co2_2, /*min_co2_3,*/ time_s);
       time_s = time_s + time_step;
     }
-
-    // Запись данных на SD-карту
-    /*write_data_to_sd(ppm_1_medium, ppm_2_medium, ppm_3_medium, ppm_common,
-                     temp_1_medium, temp_2_medium, temp_3_medium, temp_common,
-                     accuracy_1, accuracy_2, accuracy_3,
-                     min_co2_1, min_co2_2, min_co2_3, time_s);*/
-  }
+  } 
 
   Serial.println();
   if(loop_counter == read_between_warm){

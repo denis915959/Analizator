@@ -2,12 +2,68 @@
 #include <ESP8266_LCD_1602_RUS.h>
 #include <font_LCD_1602_RUS.h>
 
-const int voltage_div = 33; // пин делителя напряжения
+struct Voltage_Percent {
+  float voltage;
+  float percent;
+};
+
+// этот класс нужен для вынесения логики, связанной с с расчетом процентов и постобработкой данных с делителя 12В, за пределы класса Display
+class Charge{ // класс для считывания данных с делителя (с постобработкой данных с делителя) и конвертации усредненного значения в проценты.
+  private:
+    const int charge_pin_12 = 33; // пин делителя 12В 
+    int low_border = 2067; //нижняя граница (8.5 В)
+    int high_border = 3065;//3050;//3111; //верхняя граница (ее надо увеличить после подключения светодиода)
+    float volt_1 = (high_border - low_border)/4.1; // 3.9
+    static const int tableSize = 6; // static const позволяет использовать значение на этапе компиляции
+    const Voltage_Percent voltage_percent_list[tableSize] = {
+      {12.6, 100.0}, // 12.6
+      {11.8,  80.0}, // 12
+      {11.2,  60.0},
+      {10.8,  40.0},
+      {10.3,  20.0},
+      {8.5,   0.0}
+    };
+
+  public:
+  Charge(){
+    pinMode(charge_pin_12, INPUT);
+  }
+
+  int get_delitel_12(){ // вывод данных с делителя 12В, сюда добавить пересчет данных с делителя 12В в зависимости от данных с делителя светодиода
+    return(analogRead(charge_pin_12));
+  }
+
+  int convert_charge_to_percent(float medium){
+    float voltage = medium/volt_1;
+    if (voltage >= voltage_percent_list[0].voltage) return 100;
+    if (voltage <= voltage_percent_list[tableSize - 1].voltage) return 0.0;
+
+    // Поиск интервала для интерполяции
+    for (int i = 0; i < tableSize - 1; ++i) {
+        if (voltage <= voltage_percent_list[i].voltage && voltage > voltage_percent_list[i + 1].voltage) {
+            return ((int)(voltage_percent_list[i].percent + (voltage - voltage_percent_list[i].voltage) * 
+                  (voltage_percent_list[i + 1].percent - voltage_percent_list[i].percent) / 
+                  (voltage_percent_list[i + 1].voltage - voltage_percent_list[i].voltage)));
+        }
+    }
+    return 0; // На случай ошибки
+  }
+};
+
+
 
 
 class Display{
   private:
   bool first_print = true; // первая печать на очищенном экране или просто первая печать в программе
+  bool first_com0_print = true; // первая печать на экран  коианды 0, так как дальше обновляется только количество секунд
+  bool first_com2_print = true; // первая печать на экран  коианды 2, так как дальше обновляется только количество секунд
+  int counter = 0; // счетчик итераций (надо для отображения заряда)
+  int sum_charge_12 = 0; // сумма показаний с делителя напряжения на 12V
+  int max_iter = 200; // количество измерений для усреднения
+  int percent = 100; // заряд в процентах
+  Charge charge;
+
   LCD_1602_RUS lcd;//(0x27, 20, 4); // Адрес I2C 0x27, 20x4
   byte customBat[8] = { // символ заряда батареи
     0b11111,  
@@ -20,7 +76,8 @@ class Display{
     0b00000
   };
 
-  void print_charge(int charge){ // часть метода print_battery
+
+  void print_charge(int charge){ // часть метода print_battery, выводит только заряд в процентах
     bool print_space = false;
     if(charge<100){
       print_space = true; // печать пробела при заряде меньше 100% 
@@ -34,10 +91,8 @@ class Display{
       lcd.print(" ");
     }
   }
-  public:
-  Display() : lcd(0x27, 20, 4){}
 
-  void print_battery(int charge){ // заряд в процентах
+  void print_battery(int charge){ // печатает заряд в процентах (метод print_charge) и шкалу заряда в скобках
     lcd.setCursor(0, 0);
     bool change_bat = false; // надо ли менять индикацию батареи или нет
     if((charge<100)&&(charge%20 == 0)){ // в данном случае надо менять индикацию (это условие может быть другим)
@@ -58,42 +113,91 @@ class Display{
       }
       lcd.print("]");
     }
+    if(charge==9){
+      lcd.setCursor(10, 0); //???
+      lcd.print("  ");
+    }
     first_print = false;
   }
+  public:
+  Display() : lcd(0x27, 20, 4){}
 
   void begin() {
     lcd.init();
     lcd.backlight();
     lcd.createChar(7, customBat);
+
+    delay(500);
+    int sum_first = 0;
+    int k=75;
+    for(int i=0; i<k; i++){
+      sum_first+=charge.get_delitel_12();
+      delay(10);
+    }
+    float medium = sum_first/k;
+    percent = charge.convert_charge_to_percent(medium); // сделать глобальной
+    print_battery(percent);
   }
 
-  void print_message(int charge, int num_message, int arr[]){
-    lcd.clear();
+  void print_message(/*int charge, */int num_message, int arr[]){ // печатает сообщения. На вход номер команды и дополнительная информация (в массиве она лекжит). Некоторые команды (0 и 2) умные и обновляют только секунды, чтобы остальное изображение не мерцало
+    if(num_message!=0){
+      first_com0_print = true;
+    }
+    if(num_message!=2){
+      first_com2_print = true;
+    }
+    if((first_com0_print)&&(first_com2_print)){ // если одна из этих 2 команд уже на экране, то не надо очищать экран
+      lcd.clear();
+    }
     first_print = true;
     delay(10);
     int k;
-    print_battery(charge);
+    print_battery(percent);//charge);
     switch(num_message) {
     case 0: // проверка окончена. прогрев завершится через n сек
-      lcd.setCursor(0, 1);
-      lcd.print("П"); // rus
-      lcd.print("POBEPKA ");
-      lcd.print("OKOH");
-      lcd.print("Ч"); // rus
-      lcd.print("EHA.");
-      lcd.setCursor(0, 2);
-      lcd.print("П"); // rus
-      lcd.print("PO");
-      lcd.print("Г"); // rus
-      lcd.print("PEB 3ABEP"); // ENG
-      lcd.print("ШИ"); // rus
-      lcd.print("TC"); // ENG
-      lcd.print("Я"); // rus
-      lcd.setCursor(0, 3);
-      lcd.print("Ч"); // rus
-      lcd.print("EPE3 ");
-      lcd.print(arr[0], DEC);
-      lcd.print(" CEK");
+      if(first_com0_print){ // т.е все сообщение печатается только 1 раз, дальше обновляются только секунды
+        lcd.setCursor(0, 1);
+        lcd.print("П"); // rus
+        lcd.print("POBEPKA ");
+        lcd.print("OKOH");
+        lcd.print("Ч"); // rus
+        lcd.print("EHA.");
+        lcd.setCursor(0, 2);
+        lcd.print("П"); // rus
+        lcd.print("PO");
+        lcd.print("Г"); // rus
+        lcd.print("PEB 3ABEP"); // ENG
+        lcd.print("ШИ"); // rus
+        lcd.print("TC"); // ENG
+        lcd.print("Я"); // rus
+        lcd.setCursor(0, 3);
+        lcd.print("Ч"); // rus
+        lcd.print("EPE3 ");
+        lcd.print(arr[0], DEC);
+        lcd.print(" CEK");
+      } else{
+        if(arr[0]==9){
+          lcd.setCursor(6, 3);
+          lcd.print("            ");
+          lcd.setCursor(8, 3);
+          lcd.print("CEK");
+        }
+        if(arr[0]==99){
+          lcd.setCursor(6, 3);
+          lcd.print("            ");
+          lcd.setCursor(9, 3);
+          lcd.print("CEK");
+        }
+        if(arr[0]==999){
+          lcd.setCursor(6, 3);
+          lcd.print("            ");
+          lcd.setCursor(10, 3);
+          lcd.print("CEK");
+        }
+        lcd.setCursor(6, 3);
+        lcd.print(arr[0], DEC);
+      }
+      first_com0_print = false;
     break;
     case 1: // проверка устройства
       lcd.setCursor(0, 1);
@@ -103,13 +207,37 @@ class Display{
       lcd.print("CTBA");
     break;
     case 2: // измерение: 
-      lcd.setCursor(0, 1);
-      lcd.print("И"); // rus
-      lcd.print("3MEPEH");
-      lcd.print("И"); // rus
-      lcd.print("E: ");
-      lcd.print(arr[0], DEC);
-      lcd.print(" CEK");
+      if(first_com2_print){
+        lcd.setCursor(0, 1);
+        lcd.print("И"); // rus
+        lcd.print("3MEPEH");
+        lcd.print("И"); // rus
+        lcd.print("E: ");
+        lcd.print(arr[0], DEC);
+        lcd.print(" CEK");
+      } else{
+        if(arr[0]==10){
+          lcd.setCursor(11, 1);
+          lcd.print("         ");
+          lcd.setCursor(14, 1);
+          lcd.print("CEK");
+        }
+        if(arr[0]==100){
+          lcd.setCursor(11, 1);
+          lcd.print("         ");
+          lcd.setCursor(15, 1);
+          lcd.print("CEK");
+        }
+        if(arr[0]==1000){
+          lcd.setCursor(11, 1);
+          lcd.print("         ");
+          lcd.setCursor(16, 1);
+          lcd.print("CEK");
+        }
+        lcd.setCursor(11, 1);
+        lcd.print(arr[0], DEC);
+      }
+      first_com2_print = false;
     break;
     case 3: // вставьте sd-карту 
       lcd.setCursor(0, 1);
@@ -174,7 +302,7 @@ class Display{
       lcd.print(k, DEC);
     break;
     case 7: // обнаружена неисправность: нет соединения с датчиками k1, k2
-       lcd.setCursor(0, 1);
+      lcd.setCursor(0, 1);
       lcd.print("O");
       lcd.print("Б"); // rus
       lcd.print("HAPY");
@@ -225,132 +353,64 @@ class Display{
     break;
     }  
   }
+
+  void update_charge(){ // этот метод должен вызываться в loop (или любом другом цикле), он считывает данные с делителя 12В и делает усреднение по заранее заданному числу измерений. Если процент меньше текущего, то он автоматически обновляется на экране
+    sum_charge_12+=charge.get_delitel_12(); // здесь get_delitel
+    counter++;
+    if(counter==max_iter){
+      float medium = sum_charge_12/max_iter;
+      int percent_tmp = charge.convert_charge_to_percent(medium);
+      if(percent_tmp < percent){
+        percent = percent_tmp;
+        print_battery(percent);
+      }
+      counter=0;
+      sum_charge_12=0;
+    }    
+  }
 };
 
-int contrast_border(float medium){ // сравнение с порогом
-  float percent_border[100];
-  int low_border = 2067; //нижняя граница (8.5 В)
-  int high_border = 3065;//3050;//3111; //верхняя граница (ее надо увеличить после подключения светодиода) (4.2)
-  float volt_1 = (high_border - low_border)/4.1; // 3.9
-  float medium_volts = medium/volt_1; // /3 убрать, если все ок. для этого внедрить в массив структур границы x3
-  return(voltage_to_percent(medium_volts));
-  
-  //float step = (high_border - low_border)/99; // 100?
-  /*for(int i=0; i<100; i++){ // это в метод begin или конструктор
-    percent_border[i]= low_border + step*i;
-  }*/
-  /*int num =(int)((medium - low_border)/step) + 1; // номер процента. возможно, убрат +1?
-  if(num<=100){
-    return(num);
-  } else {
-    return(100);
-  }*/
-}
-
-struct Voltage_Percent {
-    float voltage;
-    float percent;
-};
-
-const Voltage_Percent voltage_percent_list[] = {
-    {12.6, 100.0}, // 12.6
-    {11.8,  80.0}, // 12
-    {11.2,  60.0},
-    {10.8,  40.0},
-    {10.3,  20.0},
-    {8.5,   0.0}
-};
-const int tableSize = 6;//sizeof(voltage_percent_list) / sizeof(Voltage_Percent[0]);
-
-int voltage_to_percent(float voltage) {
-    // Граничные случаи
-    if (voltage >= voltage_percent_list[0].voltage) return 100;
-    if (voltage <= voltage_percent_list[tableSize - 1].voltage) return 0.0;
-
-    // Поиск интервала для интерполяции
-    for (int i = 0; i < tableSize - 1; ++i) {
-        if (voltage <= voltage_percent_list[i].voltage && voltage > voltage_percent_list[i + 1].voltage) {
-            return ((int)(voltage_percent_list[i].percent + (voltage - voltage_percent_list[i].voltage) * 
-                  (voltage_percent_list[i + 1].percent - voltage_percent_list[i].percent) / 
-                  (voltage_percent_list[i + 1].voltage - voltage_percent_list[i].voltage)));
-        }
-    }
-
-    return 0; // На случай ошибки
-}
 
 
-int medium_iter=200; // количество усреднений
-int charge=-11;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+int count=-11;
 Display display; // конструктор не принимает параметров, значит скобки не нужны
 void setup() {
-  pinMode(voltage_div, INPUT);
   display.begin(); 
-  delay(500);
-  int sum_first = 0;
-  for(int i=0; i<75; i++){
-    sum_first+=analogRead(voltage_div);
-    delay(10);
-  }
-  float medium = sum_first/75;
-  charge = contrast_border(medium); // сделать глобальной
-  display.print_battery(charge);
-  Serial.begin(115200);
-
 }
 
 int myArray[] = {3, 3};
 void loop() {
-  //static int charge=-11; // будет инкремент нормально работать со static!
+  //static int count=-11; // будет инкремент нормально работать со static!
   static int com = 0;
   static int time_warm = 200;
   static int time_izmer = 0;
   static int loop_counter = 0;
   static int sum = 0;
+  display.update_charge();
 
-  if(loop_counter%medium_iter == 0){
-    if(loop_counter==0){
-      /*int sum_first = 0;
-      for(int i=0; i<75; i++){
-        sum_first+=analogRead(voltage_div);
-        delay(10);
-      }
-      float medium = sum_first/75;
-      charge = contrast_border(medium); // сделать глобальной
-      display.print_battery(charge);*/
-      int k=0;
-    }
-    else{
-      float medium = sum/medium_iter;
-      int charge_tmp = contrast_border(medium);
-      if(charge_tmp < charge){
-        charge = charge_tmp;
-        display.print_battery(charge);
-      }
-      sum = 0;
-    }
-  }
-  sum+=analogRead(voltage_div);
 
-  /*Serial.println(voltage_to_percent(4.2)); // 100%
-  Serial.println(voltage_to_percent(4.1)); // 90%
-  Serial.println(voltage_to_percent(4.0)); // 80%
-  Serial.println(voltage_to_percent(3.9)); // 73%
-  Serial.println(voltage_to_percent(3.8)); // 66%
-  Serial.println(voltage_to_percent(3.7)); // 60%
-  Serial.println(voltage_to_percent(3.6)); // 50%
-  Serial.println(voltage_to_percent(3.5)); // 40%
-  Serial.println(voltage_to_percent(3.4)); // 30%
-  Serial.println(voltage_to_percent(3.3)); // 20%
-  Serial.println(voltage_to_percent(2.9)); // 10% // надо сделать диапазон 2.9-3.3 вместо 2.5-3.3
-  delay(10000);*/
   
-  if(com==0){
+  /*if(com==0){
     myArray[0] = time_warm;
-  }
-  if(com==2){
+  }*/
+  /*if(com==2){
     myArray[0] = time_izmer;
-  }
+  }*/
   if(com==5){
     myArray[0] = 1;
   }
@@ -362,31 +422,31 @@ void loop() {
     myArray[1] = 3;
   }
  
-    /*charge --;
-    time_warm--;
-    time_izmer++;*/
 
-  if(loop_counter%30 == 0){// раскомментировать!
-    display.print_message(charge, com, myArray);
-    com++;
+  if(loop_counter%5 == 0){ //
+  if(com==2){
+     time_izmer++;
+    myArray[0] = time_izmer;
+  }
+    if(com==0){
+      for(int i=time_warm; i>=0; i--){
+        // здесь же вызов check_pribor
+        myArray[0]=i;
+        display.print_message(com, myArray);
+        display.update_charge();
+        delay(960); // это сделать константой, это 1 секунда при прогреве!!
+      }
+    } else{
+      display.print_message(com, myArray);
+    }
+    if(com!=2){
+      com++;
+    }
   }
   
-  /*if(charge==0){
-  charge = 100;}
-  for(int i=0; i<7; i++){ // 9
-    delay(1000);
-    display.print_battery(charge);
-    charge--;
-  } 
-  if(charge<0){
-    charge=100;
-  }
-  com ++;
-  com = com%10;
-  delay(3000);*/
   if(com>9){
     com=0;
   }
-  delay(160);
+  delay(180);
   loop_counter++;
 }
