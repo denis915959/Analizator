@@ -2,19 +2,27 @@
 #include <ESP8266_LCD_1602_RUS.h>
 #include <font_LCD_1602_RUS.h>
 
-struct Voltage_Percent {
+
+
+/*struct Voltage_Percent {
   float voltage;
   float percent;
+};*/
+
+struct LedCorrection {
+  float led;
+  float k; // коэффициент коррекции
 };
 
 // этот класс нужен для вынесения логики, связанной с с расчетом процентов и постобработкой данных с делителя 12В, за пределы класса Display
 class Charge{ // класс для считывания данных с делителя (с постобработкой данных с делителя) и конвертации усредненного значения в проценты.
   private:
     const int charge_pin_12 = 33; // пин делителя 12В 
+    const int charge_pin_led = 35; // пин делителя светодиода 
     int low_border = 2067; //нижняя граница (8.5 В)
-    int high_border = 3065;//3050;//3111; //верхняя граница (ее надо увеличить после подключения светодиода)
-    float volt_1 = (high_border - low_border)/4.1; // 3.9
-    static const int tableSize = 6; // static const позволяет использовать значение на этапе компиляции
+    int high_border = 3075; //3065;//3050;//3111; //верхняя граница (ее надо увеличить после подключения светодиода)
+    //float volt_1 = (high_border - low_border)/100; // 3.9
+    /*static const int tableSize = 6; // static const позволяет использовать значение на этапе компиляции
     const Voltage_Percent voltage_percent_list[tableSize] = {
       {12.6, 100.0}, // 12.6
       {11.8,  80.0}, // 12
@@ -22,31 +30,79 @@ class Charge{ // класс для считывания данных с дели
       {10.8,  40.0},
       {10.3,  20.0},
       {8.5,   0.0}
+    };*/
+    static const int pointsCount = 4; // кол-во точек в led_correction
+    const LedCorrection approximation[pointsCount] = {
+      {0.0, 0.0},
+      {1500.0, 0.0038},
+      {1670.0, 0.009/*0.0115*/},
+      {2410.0, 0.018/*0.0228*/}
     };
+
+    float get_correction_led(int charge_led) { // возвращает коэффициэнт коррекции для светодиода (через линейную аппроксимацию)
+      if (charge_led <= approximation[0].led) return approximation[0].k; // Если charge_led меньше минимального значения, берём первую точку
+      if (charge_led >= approximation[pointsCount - 1].led) return approximation[pointsCount - 1].k; // Если y больше максимального, берём последнюю точку
+  
+      // Ищем интервал, в который попадает charge_led
+      for (int i = 0; i < pointsCount - 1; i++) {
+        if (charge_led >= approximation[i].led && charge_led <= approximation[i + 1].led) {
+          // Линейная интерполяция: k = k1 + (k2 - k1) * (charge_led - led1) / (led2 - led1)
+          float led1 = approximation[i].led;
+          float led2 = approximation[i + 1].led;
+          float k1 = approximation[i].k;
+          float k2 = approximation[i + 1].k;
+          return (k1 + (k2 - k1) * (charge_led - led1) / (led2 - led1));
+        }
+      }
+      return 0.0; // на случай ошибки
+    }
 
   public:
   Charge(){
     pinMode(charge_pin_12, INPUT);
+    pinMode(charge_pin_led, INPUT);
   }
 
   int get_delitel_12(){ // вывод данных с делителя 12В, сюда добавить пересчет данных с делителя 12В в зависимости от данных с делителя светодиода
-    return(analogRead(charge_pin_12));
+    int charge = analogRead(charge_pin_12); 
+    int charge_led = analogRead(charge_pin_led); // читаем данные с делителя напряжения светодиода
+    float k = get_correction_led(charge_led);
+    int result = (int)(charge*(1-(approximation[pointsCount-1].k - k))); // т.е берем max значение k и из него вычитаем
+    Serial.println(charge);
+    Serial.println(result);
+    Serial.println("");
+    return(result);
   }
 
-  int convert_charge_to_percent(float medium){
-    float voltage = medium/volt_1;
+
+  int convert_charge_to_percent(float medium){ // конвертация данных с делителя в проценты
+    /*float voltage = medium/volt_1;
     if (voltage >= voltage_percent_list[0].voltage) return 100;
-    if (voltage <= voltage_percent_list[tableSize - 1].voltage) return 0.0;
+    if (voltage <= voltage_percent_list[tableSize - 1].voltage) return 0.0;*/
+    
+    float percent_1 = (high_border - low_border)/100;
+    int percents = (int)((medium - low_border)/percent_1);
+    Serial.println(percent_1);
+    if(percents>100){
+      return(100);
+    }
+    if(percents<0){
+      return(0);
+    }
+    return(percents);
+
+    /*float medium_volts = medium/volt_1; // /3 убрать, если все ок. для этого внедрить в массив структур границы x3
+    return(voltage_to_percent(medium_volts));*/
 
     // Поиск интервала для интерполяции
-    for (int i = 0; i < tableSize - 1; ++i) {
+    /*for (int i = 0; i < tableSize - 1; ++i) {
         if (voltage <= voltage_percent_list[i].voltage && voltage > voltage_percent_list[i + 1].voltage) {
             return ((int)(voltage_percent_list[i].percent + (voltage - voltage_percent_list[i].voltage) * 
                   (voltage_percent_list[i + 1].percent - voltage_percent_list[i].percent) / 
                   (voltage_percent_list[i + 1].voltage - voltage_percent_list[i].voltage)));
         }
     }
-    return 0; // На случай ошибки
+    return 0; // На случай ошибки*/
   }
 };
 
@@ -391,6 +447,8 @@ int count=-11;
 Display display; // конструктор не принимает параметров, значит скобки не нужны
 void setup() {
   display.begin(); 
+    Serial.begin(115200);
+
 }
 
 int myArray[] = {3, 3};
