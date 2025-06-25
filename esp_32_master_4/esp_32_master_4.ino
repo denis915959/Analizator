@@ -14,7 +14,7 @@ const int rele3_pin = 4;
 
 char* path = "/data.txt";
 char command = -1;
-const int warming_time = 300; // время прогрева(в секундах)
+const int warming_time = 100; // время прогрева(в секундах)
 const int first_warming_time = 10; //30 - все работает;
 int loop_counter = 0;
 bool set_zero_flag = true; // если true, то будет использоваться СетЗеро, если false, то не будет 
