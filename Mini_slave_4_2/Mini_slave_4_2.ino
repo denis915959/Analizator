@@ -149,6 +149,8 @@ void onReceive(int len) {
   }
 
   int sensor_rele = (int)result[5];
+  int led_rele = (int)result[6];
+  int kuler_rele = (int)result[7];
   //Serial.print(sensor_rele);
  // Serial.println(" rele");
   if(sensor_rele==22){
@@ -175,6 +177,19 @@ void onReceive(int len) {
     digitalWrite(3, LOW);
   }
 
+  if(led_rele==2){
+    digitalWrite(4, HIGH);
+  }
+  if((led_rele==0)||(led_rele==1)){
+    digitalWrite(4, LOW);
+  }
+
+  if(kuler_rele==2){
+    digitalWrite(5, HIGH);
+  }
+  if((kuler_rele==0)||(led_rele==1)){
+    digitalWrite(5, LOW);
+  }
 }
 
 // Определение функции converter_to_number
@@ -196,6 +211,8 @@ void setup() {
   pinMode(3, OUTPUT); // второй датчик реле
   pinMode(4, OUTPUT); // светодиод реле
   pinMode(5, OUTPUT); // вентилятор реле
+  digitalWrite(4, LOW);
+  digitalWrite(5, LOW);
 }
 
 void loop() {

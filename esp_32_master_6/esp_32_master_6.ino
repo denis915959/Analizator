@@ -20,6 +20,8 @@ const int first_warming_time = 10; //10 - все работает;
 int loop_counter = 0;
 bool set_zero_flag = true; // если true, то будет использоваться СетЗеро, если false, то не будет 
 bool use_autocalibration = false; // если true, то будет использоваться Автокалибровка, если false, то не будет 
+bool led_between_warm = true; // true - светодиод включается после проверки устройства на весь период прогрева. false - включается сразу после прогрева
+const int led_time = 450;// 450 // время работы светодиода в секундах
 bool read_co2 = false; // флаг для работы программы
 int delay_between_readings = 161; //130; //150(добавился экран и это замедляет код); // при задержке 100 мс частота измерений 1.37 Гц.
 const int read_between_warm = 25; // 50
@@ -39,6 +41,8 @@ float ppm_common = 0; // усреднение по 3 датчикам после
 float time_s = 0; // время в секундах
 bool write_sd_flag = false;
 float time_step = 1.000; //0.987;
+
+int led_time_counter = 0; // счетчик времени работы светодиода 
 
 // Переменные для температуры
 float temp_1_medium = 0;
@@ -64,7 +68,6 @@ char sensor_rele = 0;
 char led_rele = 0; // 0 - не инициализировано, 1 - выключено, 2 - включено
 char kuler_rele = 0; // 0 - не инициализировано, 1 - выключено, 2 - включено
 const bool led_before_warm = false; // true - светодиод включается при прогреве, false - светодиод включается после прогрева
-int led_time = 0; // время работы светодиода
 
 
 
@@ -462,8 +465,58 @@ class Display{
 };
 
 
+class Kuler{ // класс для работы с вентилятором охлаждения
+  private: 
+  int termistor_pin = 34;
+  int value_cold = 2175; // 2160
+  int value_35 = 2160; // на 220-й секунде
+  int value_40 = 2260; // значение термистора при 40 градусах (на 350-й секунде)
+  int value_50 = -1;
+  const int n = 30; // количество измерений для усреднения
+  int sum = 0;
+  int iter_counter = 0; // счетчик итераций основного цикла
+  public:
+  void begin(){
+    pinMode(termistor_pin, INPUT);
+  }
+
+  int get_temperature(){ 
+    return(analogRead(termistor_pin));
+  }
+
+  bool check_hot(){
+    bool res = false;
+    sum+=get_temperature();
+    iter_counter++;
+    if(iter_counter == n){
+      int temp = (int)(sum/n);
+      Serial.print("Temp = ");
+      Serial.println(temp);
+      if(temp>=value_40){
+        res=true;        
+      }
+      sum=0;
+      iter_counter=0;
+    }
+    return(res);
+  }
+
+  bool check_cold(){ // на случай, если вентилятор уже достаточно остудил радиатор
+    bool res = false;
+    if(iter_counter == n){
+      int temp = (int)(sum/n);
+      Serial.print("Temp = ");
+      Serial.println(temp);
+      if(temp <= value_cold){
+        res=true;        
+      }
+    }
+    return(res);
+  }
+};
 
 
+// sd надо бы тоже в класс
 void appendFile(fs::FS &fs, const char * path, const char * message,  bool new_string){ // если new_string==true на новую строку переводит каретку
   File file = fs.open(path, FILE_APPEND);
   if(!file){
@@ -594,9 +647,12 @@ char* converter_to_array(char* result, char command, int warming_time_s, char se
 
 
 
+
 Display display; // конструктор не принимает параметров, значит скобки не нужны
+Kuler kuler;
 void setup() {
   display.begin(); 
+  kuler.begin();
  /// pinMode(rele1_pin, OUTPUT); // первый
   //pinMode(rele2_pin, OUTPUT); // второй
   //pinMode(rele3_pin, OUTPUT); // третий
@@ -629,6 +685,9 @@ void setup() {
   }
 
   appendFile(SD, path, "CO2_1;CO2_2;CO2_medium;Temp_1;Temp_2;Temp_medium;Accuracy_1;Accuracy_2;Min_CO2_1;Min_CO2_2; time"/*"CO2_1;CO2_2;CO2_3;CO2_medium;Temp_1;Temp_2;Temp_3;Temp_medium;Accuracy_1;Accuracy_2;Accuracy_3;Min_CO2_1;Min_CO2_2;Min_CO2_3; time"*/, true);
+  if(led_between_warm){
+    led_time_counter = warming_time;
+  }
 }
 
 int data_1[5];
@@ -639,16 +698,37 @@ int n=0;
 int myArray[] = {3, 3};
 bool reset = false;
 
+
 void loop() { // данные не пишутся на флешку перед прогревом. попробовать писать данные на флешку
   static int izmer_counter = 0; // счетчик количества измерений (для вывода на экран)
   bool first_reset = false;
   bool second_reset = false;
   bool no_print_display=false; // флаг, чтобы сообщение "проверка устройства" не переизображалось несколько раз
 
+  bool hot = false;
+  if(led_rele == 2){
+    if(kuler_rele == 2){
+      if(kuler.check_cold()){
+        kuler_rele = 1;
+      }
+    }
+    if(kuler.check_hot()){ // радиатор достаточно прогрелся?
+      kuler_rele = 2;
+    }
+  }
+
+
   if((reset == true)&&(loop_counter==2)){ // т.е. ошибка 15 отработана реле
     no_print_display = true;
     reset=false;
     loop_counter=0;
+  }
+  if(led_time_counter == led_time){ // нужное время прошло и реле надо отключить
+    led_rele = 1; // 1 - выключено
+    kuler_rele = 1;
+  }
+  if((loop_counter==(read_between_warm + 3))&&(led_between_warm==false)){ // включение реле после прогрева. если read_between_warm + 2, то включается за 3 секунды до конца прогрева
+    led_rele = 2;
   }
   //bool third_reset = false;
   //bool reset = false;
@@ -658,32 +738,6 @@ void loop() { // данные не пишутся на флешку перед �
     }
     display.update_charge();
     delay(first_warming_time*1000);
-
-    // этот блок надо доработать
-    /*char* message = new char[5]; 
-    command = 9;// другое ввести
-    converter_to_array(message, command, warming_time); // элемент 1 - command. Результат записывается в message
-    int size_send_message = 5;
-
-    // Отправка запроса на Ардуино 2
-    Wire.beginTransmission(I2C_DEV_ADDR_2);
-    for (int i = 0; i < size_send_message; i++){
-      Wire.write(message[i]);
-    }
-    //delay(3000);
-
-    // Получение ответа от Ардуино 2
-    while(Wire.endTransmission(true) != 0){
-      
-      Serial.println("Error 2");
-    }
-    delay(10);
-    uint8_t bytesReceived = Wire.requestFrom(I2C_DEV_ADDR_2, 9); // Чтение 9 байт с slave*/
-    // конец блока
-    // на ардуине отправлять ответ, и печатать команду 111 при получении
-
-
-
   }
   if(loop_counter == read_between_warm){
     /*bool first_reset = false;
@@ -740,6 +794,9 @@ void loop() { // данные не пишутся на флешку перед �
     case read_between_warm: // 0
       read_co2 = false;
       command = 5; // прогрев
+      if(led_between_warm){ // включение реле перед прогревом, если надо включить перед прогревом 
+        led_rele = 2; // 2 - включено, 1 - выключено
+      }
       break;
     case (read_between_warm + 1): // 1 
       read_co2 = false;
@@ -774,8 +831,10 @@ void loop() { // данные не пишутся на флешку перед �
           display.update_charge();
           myArray[0] = (int)(izmer_counter/5);
           display.print_message(2, myArray);
+          led_time_counter++; 
         }
         izmer_counter++;
+        //led_time_counter++; 
       }
   }
   if((reset == true)&&(loop_counter==1)){ // чтобы команда на отключение реле отправилась, а чтение данных с датчика не производилось
@@ -783,12 +842,13 @@ void loop() { // данные не пишутся на флешку перед �
     sensor_rele=11;
   }
 
+
   // Создание запроса на ардуины
   static const int size_send_message = 8; // 5
   char* message = new char[size_send_message];
-  converter_to_array(message, command, warming_time, sensor_rele, 1, 1); // элемент 1 - command. Результат записывается в message
-  Serial.print((int)sensor_rele);
-  Serial.println(" rele");
+  converter_to_array(message, command, warming_time, sensor_rele, led_rele, kuler_rele); // элемент 1 - command. Результат записывается в message
+  //Serial.print((int)sensor_rele);
+  //Serial.println(" rele");
 
   // Отправка запроса на Ардуино 1
   Wire.beginTransmission(I2C_DEV_ADDR_1);
@@ -955,16 +1015,16 @@ void loop() { // данные не пишутся на флешку перед �
         delay(delay_in_command0); // это сделать константой, это 1 секунда при прогреве!!
       }
     } else{
-      //delay(3000);
+      delay(3000);
     }
   }
   if((reset == true)&&(loop_counter==0)){ // задержка, равная времени, когнда реле разомкнуто
-    data_1[4]=1; // попробовать закомментировать
-    data_2[4]=1;
+    //data_1[4]=1; // попробовать закомментировать
+    //data_2[4]=1;
     delay(rele_open_time); //время, когда реле разомкнуто
   }
   if((reset == true)&&(loop_counter==1)){ // для того, чтобы реле успевало разомкнуться
-    delay(2000);
+    delay(1000);
   }
   loop_counter++;
 }
