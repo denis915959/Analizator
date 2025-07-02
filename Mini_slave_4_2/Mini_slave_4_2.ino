@@ -187,7 +187,7 @@ void onReceive(int len) {
   if(kuler_rele==2){
     digitalWrite(5, HIGH);
   }
-  if((kuler_rele==0)||(led_rele==1)){
+  if((kuler_rele==0)||(kuler_rele==1)){
     digitalWrite(5, LOW);
   }
 }
