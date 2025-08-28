@@ -31,6 +31,7 @@ bool do_measure = false; // true - поступила команда начат�
 const int max_loop_iter = measure_time*measure_count + measure_count*led_time; // число итераций цикла loop с временем свечения светодиода
 const int on_off_pin = 25;
 bool send_last_message = false; // становится true при прерывании измерения, нужен для отправки сообщения об выключении светодиода и вентилятора на ардуино
+const int delay_after_on_off_click = 1000; // время задержки после нажатия кнопки старт стоп
 
 // Переменные для CO2
 float ppm_1_medium = 0;
@@ -248,7 +249,7 @@ class Display{
       lcd.clear();
     }
     first_print = true;
-    delay(10);
+    //delay(10);
     int k;
     print_battery(percent);//charge);
     switch(num_message) {
@@ -340,6 +341,10 @@ class Display{
     case 3: // вставьте sd-карту 
       lcd.setCursor(0, 1);
       lcd.print("BCTABbTE SD-KAPTY");
+      lcd.setCursor(0, 2);
+      lcd.print("ИЛИ HAЖMИTE KHOПKY");
+      lcd.setCursor(0, 3);
+      lcd.print("CTOП");
     break;
     case 4: // нет соединения с измерительным модулем
       lcd.setCursor(0, 1);
@@ -658,33 +663,12 @@ char* converter_to_array(char* result, char command, int warming_time_s, char se
 Display display; // конструктор не принимает параметров, значит скобки не нужны
 Kuler kuler;
 void setup() {
-  pinMode(25, INPUT);
+  pinMode(on_off_pin, INPUT);
   display.begin(); 
   kuler.begin();
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Wire.begin();
-  if(!SD.begin()){
-    Serial.println("Card Mount Failed");
-    return;
-  }
-  uint8_t cardType = SD.cardType();
-
-  if(cardType == CARD_NONE){
-    Serial.println("No SD card attached");
-    return;
-  }
-
-  Serial.print("SD Card Type: ");
-  if(cardType == CARD_MMC){
-    Serial.println("MMC");
-  } else if(cardType == CARD_SD){
-    Serial.println("SDSC");
-  } else if(cardType == CARD_SDHC){
-    Serial.println("SDHC");
-  } else {
-    Serial.println("UNKNOWN");
-  }
 
   if(led_between_warm){
     led_time_counter = warming_time;
@@ -705,10 +689,29 @@ void loop() { // данные не пишутся на флешку перед �
   int izmer_counter = 0;
   bool stop_flag = false;
   if(on==1){
-    do_measure = true;
-    do_work = true;
-    appendFile(SD, path, "CO2_1;CO2_2;CO2_medium;Temp_1;Temp_2;Temp_medium;Accuracy_1;Accuracy_2;Min_CO2_1;Min_CO2_2; time"/*"CO2_1;CO2_2;CO2_3;CO2_medium;Temp_1;Temp_2;Temp_3;Temp_medium;Accuracy_1;Accuracy_2;Accuracy_3;Min_CO2_1;Min_CO2_2;Min_CO2_3; time"*/, true);
-    delay(100); // 500
+    int stop = 2;
+    bool first_iteration = true; // флаг нужен, чтобы выводить на экран 1 раз, иначе мерцание возникает
+    while(!SD.begin()){
+      //Serial.println("Card Mount Failed");
+      if(first_iteration == true){
+        first_iteration = false;
+        display.print_message(3, myArray);
+      }
+      stop = digitalRead(on_off_pin);
+      if(stop==1){
+        break;
+      }
+    }
+    if(stop!=1){
+      do_measure = true;
+      do_work = true;
+      appendFile(SD, path, "CO2_1;CO2_2;CO2_medium;Temp_1;Temp_2;Temp_medium;Accuracy_1;Accuracy_2;Min_CO2_1;Min_CO2_2; time"/*"CO2_1;CO2_2;CO2_3;CO2_medium;Temp_1;Temp_2;Temp_3;Temp_medium;Accuracy_1;Accuracy_2;Accuracy_3;Min_CO2_1;Min_CO2_2;Min_CO2_3; time"*/, true);
+      delay(100);  // 500
+    }
+    if(stop == 1){
+      display.print_message(10, myArray);
+      delay(delay_after_on_off_click);
+    }
   }
   while(do_work){
   //static int izmer_counter = 0; // счетчик количества измерений (для вывода на экран)
@@ -831,8 +834,6 @@ void loop() { // данные не пишутся на флешку перед �
   }
 
 
-//начало блока, который блокируется при нажатии кнопки стоп
-//начало блока, который надо бы в класс засунуть
   // Создание запроса на ардуины
   static const int size_send_message = 8; // 5
   char* message = new char[size_send_message];
@@ -955,15 +956,22 @@ void loop() { // данные не пишутся на флешку перед �
   } else if(read_co2 == true){
     //delay(delay_between_readings); // здесь сделать считывание данных с кнопки on/off в цикле
     int cpu_time = (1/measure_count) - delay_between_readings;
-    int step = delay_between_readings/6;
+    int step = (int)(delay_between_readings/27);
     //delay(cpu_time);
-    int off[7];
+    int off[1];
+    bool button = false;
     off[0] = digitalRead(on_off_pin);
-    for(int i=0; i<6; i++){
-      delay(step);
-      off[i+1] = digitalRead(on_off_pin);
+    if(off[0]==1){
+      button = true;
     }
-    if((local_loop_counter>=measure_count*3)&&((off[0]==1)||(off[1]==1)||(off[2]==1)||(off[3]==1)||(off[4]==1)||(off[5]==1)||(off[6]==1))){ // local_loop_counter>=9 сделано для того, чтобы первые 3 секунды кнопка не считывалась, это надо, чтобы не было такого, что нажал кнопку старт и тут же все остановилдось 
+    for(int i=1; i<28; i++){
+      delay(step);
+      off[0] = digitalRead(on_off_pin);
+      if(off[0]==1){
+        button = true;
+      }
+    }
+    if((local_loop_counter>=measure_count*1)&&(button==true/*(off[0]==1)||(off[1]==1)||(off[2]==1)||(off[3]==1)||(off[4]==1)||(off[5]==1)||(off[6]==1)*/)){ // local_loop_counter>=9 сделано для того, чтобы первые 3 секунды кнопка не считывалась, это надо, чтобы не было такого, что нажал кнопку старт и тут же все остановилдось 
       send_last_message = true;
       led_rele = 1; // 0 - не инициализировано, 1 - выключено, 2 - включено
       kuler_rele = 1; // 0 - не инициализировано, 1 - выключено, 2 - включено
@@ -988,6 +996,7 @@ void loop() { // данные не пишутся на флешку перед �
         do_work = false;
       }
       display.print_message(10, myArray);
+      SD.end();
     } else{
       delay(3000);
     }
@@ -1006,6 +1015,7 @@ void loop() { // данные не пишутся на флешку перед �
     do_measure=false;
     do_work = false;
     display.print_message(10, myArray);
+    SD.end();
   }
   }
   local_loop_counter=0;
@@ -1016,8 +1026,9 @@ void loop() { // данные не пишутся на флешку перед �
   kuler_rele = 0; // 0 - не инициализировано, 1 - выключено, 2 - включено
   if(stop_flag==true){
     display.print_message(10, myArray);
-    delay(1500); // задержка от повторного считывания кнопки старт/стоп
+    SD.end();
+    delay(delay_after_on_off_click); // задержка от повторного считывания кнопки старт/стоп
   } else{
-    delay(50);
+    delay(10);
   }
 }
