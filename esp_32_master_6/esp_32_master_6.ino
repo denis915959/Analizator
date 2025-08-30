@@ -4,6 +4,7 @@
 #include <SPI.h>
 #include <ESP8266_LCD_1602_RUS.h>
 #include <font_LCD_1602_RUS.h>
+#include <Preferences.h>
 
 #define I2C_DEV_ADDR_1 0x09
 #define I2C_DEV_ADDR_2 0x55
@@ -11,10 +12,10 @@
 
 char* path = "/data.txt";
 char command = -1;
-const int warming_time = 300; //300; // время прогрева(в секундах)
+const int warming_time = 180; //300; // время прогрева(в секундах)
 const bool led_between_warm = false;; // true - светодиод включается после проверки устройства на весь период прогрева. false - включается сразу после прогрева
-int led_time = 180;// 450 // время работы светодиода в секундах
-int measure_time = 180; // время измерения (без работы светодиода) в секундах. Возможно, потом суммировать с временем работы светодиода?
+int led_time = 1800;// 450 // время работы светодиода в секундах
+int measure_time = 780; // время измерения (без работы светодиода) в секундах. Возможно, потом суммировать с временем работы светодиода?
 
 const int rele_open_time = 10000;//4000  // это время размыкания реле при ошибке 15
 const int first_warming_time = 10; //10 - все работает; время прогрева перед тестом на ошибку 15
@@ -23,7 +24,7 @@ bool set_zero_flag = true; // если true, то будет использов�
 bool use_autocalibration = false; // если true, то будет использоваться Автокалибровка, если false, то не будет 
 bool read_co2 = false; // флаг для работы программы
 const int delay_between_readings = 272; //161; //130; //150(добавился экран и это замедляет код); // при задержке 100 мс частота измерений 1.37 Гц.
-const int measure_count = 3; // количество измерений для усреднения
+const int measure_count = 3;//3; // количество измерений для усреднения
 const int read_between_warm = measure_count*5; //25; // количество считываний перед проверкой на ошибку 15
 const int delay_in_command0 = 960; // 1 секунда в цикле прогрева
 bool do_work = true; // true - цикл while запускается, false - цикл останавливается
@@ -678,9 +679,15 @@ void setup() {
 int data_1[5];
 int data_2[5];
 
+int sensor_1[7];
+int sensor_2[7];
+int common[7];
+
 int n=0;
 int myArray[] = {3, 3};
 bool reset = false;
+bool warm_completed = false; // нужен, чтобы если кнопка зажата при включении, не было наложения алгоритма нажатой кнопки на алгоритм проверки и прогрева  датчиков
+double k = 0; // коэффициэнт коррекции при отключении датчика из-за ошибки 15
 
 
 void loop() { // данные не пишутся на флешку перед прогревом. попробовать писать данные на флешку
@@ -688,7 +695,8 @@ void loop() { // данные не пишутся на флешку перед �
   int on = digitalRead(on_off_pin);
   int izmer_counter = 0;
   bool stop_flag = false;
-  if(on==1){
+  int arr_counter = 0; // счетчик для заполнеия массивов с данными датчиов
+  if((on==1)&&(warm_completed)){ // 1
     int stop = 2;
     bool first_iteration = true; // флаг нужен, чтобы выводить на экран 1 раз, иначе мерцание возникает
     while(!SD.begin()){
@@ -931,6 +939,57 @@ void loop() { // данные не пишутся на флешку перед �
 
     ppm_common = (ppm_1_medium + ppm_2_medium/* + ppm_3_medium*/) / 2;//3;
     temp_common = (temp_1_medium + temp_2_medium/* + temp_3_medium*/) / 2;//3;
+    if(do_measure == true){
+      if((ppm_1_medium == 15)||(ppm_2_medium == 15)){
+        if((ppm_1_medium == 15)&&(ppm_2_medium != 15)){ // датчик 1 выдал ошибку 15       
+          if(k==0){
+            int common_sum = 0;
+            int sensor_2_sum = 0;
+            for(int i = 0; i<7; i++){
+              int arr_counter_tmp = arr_counter%7;
+              if(arr_counter_tmp==0){
+                arr_counter_tmp = 6;
+              }
+              if((i!=(arr_counter%7))&&(i!=arr_counter_tmp)){ // сделать проверку на arr_counter%7>0
+                common_sum += common[i];
+                sensor_2_sum += sensor_2[i];
+              }
+            }
+            if(sensor_2_sum==0){
+              sensor_2_sum=1;
+            }
+            k = (double)common_sum/(double)sensor_2_sum;
+          }
+          ppm_common = k*ppm_2_medium;
+        }
+        if((ppm_2_medium == 15)&&(ppm_1_medium != 15)){ // датчик 2 выдал ошибку 15
+          if(k==0){
+            int common_sum = 0;
+            int sensor_1_sum = 0;
+            for(int i =0; i<7; i++){
+              int arr_counter_tmp = arr_counter%7;
+              if(arr_counter_tmp==0){
+                arr_counter_tmp = 6;
+              }
+              if((i!=(arr_counter%7))&&(i!=arr_counter_tmp)){
+                common_sum += common[i];
+                sensor_1_sum += sensor_1[i];
+              }
+            }
+            if(sensor_1_sum==0){
+              sensor_1_sum=1;
+            }
+            k = (double)common_sum/(double)sensor_1_sum;
+          }
+          ppm_common = k*ppm_1_medium;
+        }  
+      } else{
+        sensor_1[arr_counter] = ppm_1_medium;
+        sensor_2[arr_counter] = ppm_2_medium;
+        common[arr_counter] = ppm_common;
+        Serial.println("k10");
+      }
+    }
     
     if(loop_counter < read_between_warm){
       data_1[(int)(loop_counter/measure_count)] = ppm_1_medium;
@@ -960,15 +1019,17 @@ void loop() { // данные не пишутся на флешку перед �
     //delay(cpu_time);
     int off[1];
     bool button = false;
-    off[0] = digitalRead(on_off_pin);
-    if(off[0]==1){
-      button = true;
-    }
-    for(int i=1; i<28; i++){
-      delay(step);
+    if(warm_completed){
       off[0] = digitalRead(on_off_pin);
       if(off[0]==1){
         button = true;
+      }
+      for(int i=1; i<28; i++){
+        delay(step);
+        off[0] = digitalRead(on_off_pin);
+        if(off[0]==1){
+          button = true;
+        }
       }
     }
     if((local_loop_counter>=measure_count*1)&&(button==true/*(off[0]==1)||(off[1]==1)||(off[2]==1)||(off[3]==1)||(off[4]==1)||(off[5]==1)||(off[6]==1)*/)){ // local_loop_counter>=9 сделано для того, чтобы первые 3 секунды кнопка не считывалась, это надо, чтобы не было такого, что нажал кнопку старт и тут же все остановилдось 
@@ -992,9 +1053,10 @@ void loop() { // данные не пишутся на флешку перед �
         display.print_message(0, myArray);
         display.update_charge();
         delay(delay_in_command0); // это сделать константой, это 1 секунда при прогреве!!
-        do_measure = false;
-        do_work = false;
       }
+      do_measure = false;
+      do_work = false;
+      warm_completed = true; 
       display.print_message(10, myArray);
       SD.end();
     } else{
@@ -1011,6 +1073,10 @@ void loop() { // данные не пишутся на флешку перед �
 //начало блока, который блокируется при нажатии кнопки стоп
   loop_counter++;
   local_loop_counter++;
+  if(local_loop_counter%measure_count==0){
+    arr_counter++;
+    arr_counter = arr_counter%7;
+  }
   if((local_loop_counter == max_loop_iter)){
     do_measure=false;
     do_work = false;
