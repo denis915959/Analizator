@@ -470,12 +470,24 @@ class Display{
       lcd.setCursor(0, 2);
       lcd.print("HAЖMИTE KHOПKY CTAPT");
     break;
-    case 11: // ДЛЯ НАЧАЛА ИЗМЕРЕНИЯ НАЖМИТЕ СТАРТ 
+    case 11: // время свечения 
+      lcd.setCursor(0, 2);
+      lcd.print("   BPEMЯ CBEЧEHИЯ");
+    break;
+    case 12: // время ИЗМЕРЕНИЯ
+      lcd.setCursor(0, 2);
+      lcd.print("   BPEMЯ И3MEPEHИЯ");
+    break;
+    case 13: // ВЫХОД
+      lcd.setCursor(0, 2);
+      lcd.print("       BЫXOД");
+    break;
+    /*case 11: // ДЛЯ НАЧАЛА ИЗМЕРЕНИЯ НАЖМИТЕ СТАРТ 
       lcd.setCursor(0, 1);
       lcd.print("ДЛЯ BXOДA B");
       lcd.setCursor(0, 2);
       lcd.print("HACTPOЙKИ HAЖMИTE OK");
-    break;
+    break;*/
     }  
   }
 
@@ -545,12 +557,17 @@ class Settings{ // класс для работы с вентилятором о
   const int down_pin = 14; // кнопка вниз
   int ok_counter = 0; // счетчик кнопки Ok, нужен для того, чтобы войти в настройки при непрерывном нажатии кнопки Ok в течение секунды
   int delay_between_loop_iter = 0;
-  const int ok_click_time = 2000; // время, которое надо зажимать кнопку ok, чтобы войти в настройки
+  const int ok_click_time = 1500; // время, которое надо зажимать кнопку ok, чтобы войти в настройки
   int ok_num = -1;
+  int delay_after_on_off_click = 0;
+  const int parametr_n = 2; // количество параметров (без выхода)
+  const int n_delay = 4; // на сколько делить базовый интервал задержки после срабатывания кнопки
+  Display& display; // сейчас обьект передается просто по ссылке. возможно, сделать unique ptr
   public:
-  Settings(int delay_between_loop_iter_){
-    delay_between_loop_iter = delay_between_loop_iter_;
+  Settings(int delay_between_loop_iter_, int delay_after_on_off_click_, Display& display_):display(display_){
+    delay_between_loop_iter = delay_between_loop_iter_; 
     ok_num = (int)(ok_click_time/delay_between_loop_iter);
+    delay_after_on_off_click = delay_after_on_off_click_;
     pinMode(ok_pin, INPUT);
     pinMode(left_pin, INPUT);
     pinMode(right_pin, INPUT);
@@ -572,7 +589,51 @@ class Settings{ // класс для работы с вентилятором о
     }
   }
 
-
+  void input_settings(){
+    if(check_input_settings()==false){
+      return;
+    } else{
+      int parametr = 0; // номер параметира, выбранного для изменения
+      int myArray[] = {3, 3};
+      display.print_message((11+parametr), myArray);
+      delay(delay_after_on_off_click); // возможно, увеличить
+      bool choice_paramter = false; // если пользователь выбрал параметр, то true, если снова вернулся в выбор параметров - false
+      while(true){
+        // здесь чтение данных с кнопок
+        int ok = digitalRead(ok_pin);
+        int left = digitalRead(left_pin);
+        int right = digitalRead(right_pin);    
+        int down = digitalRead(down_pin);
+        int up = digitalRead(up_pin);
+        if(choice_paramter == false){
+          if(right == 1){// правая кнопка нажата
+            parametr++;
+            parametr = parametr%(parametr_n + 1);
+            display.print_message((11+parametr), myArray); // выводить на экран сообщение
+            delay((int)(delay_after_on_off_click/n_delay));
+          }else if(left == 1){// левая кнопка нажата
+            parametr--;
+            if(parametr == -1){
+              parametr = 2;
+            }
+            display.print_message((11+parametr), myArray); // выводить на экран сообщение
+            delay((int)(delay_after_on_off_click/n_delay));
+          }else if(ok == 1){ // кнопка ok нажата
+            if(parametr == parametr_n){
+              display.print_message(10, myArray);// вывод на экран сообщения 10
+              delay(delay_after_on_off_click);
+              break;
+            }
+            choice_paramter = true;
+            // вывод на экран текущего значения параметра
+          }
+        } else{
+          
+        }
+        delay(delay_between_loop_iter);
+      }
+    }
+  }
 };
 
 
@@ -712,7 +773,6 @@ int sensor_2[7];
 int common[7];
 Display display; // конструктор не принимает параметров, значит скобки не нужны
 Kuler kuler;
-Settings settings(delay_between_loop_iter);
 void setup() {
   pinMode(on_off_pin, INPUT);
   display.begin(); 
@@ -729,9 +789,9 @@ void setup() {
   sensor_2[i]=1;
   common[i]=1;
 }
-
 }
 
+Settings settings(delay_between_loop_iter, delay_after_on_off_click, display);
 int data_1[5];
 int data_2[5];
 
@@ -748,8 +808,9 @@ void loop() { // данные не пишутся на флешку перед �
   int izmer_counter = 0;
   bool stop_flag = false;
   int arr_counter = 0; // счетчик для заполнеия массивов с данными датчиов
-  if(settings.check_input_settings() == true)
-    Serial.println("k100");
+  /*if(settings.check_input_settings() == true)
+    Serial.println("k100");*/
+  settings.input_settings();
   if((on==1)&&(warm_completed)){ // 1
     int stop = 2;
     bool first_iteration = true; // флаг нужен, чтобы выводить на экран 1 раз, иначе мерцание возникает
