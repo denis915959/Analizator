@@ -83,6 +83,13 @@ struct LedCorrection { // структура данных для хранени�
   float k; // коэффициент коррекции
 };
 
+struct Parametr{
+  int low_border = 0;
+  int high_border = 0;
+  int number = 0;
+  int k = 0;
+};
+
 // этот класс нужен для вынесения логики, связанной с с расчетом процентов и постобработкой данных с делителя 12В, за пределы класса Display
 class Charge{ // класс для считывания данных с делителя (с постобработкой данных с делителя) и конвертации усредненного значения в проценты.
   private:
@@ -159,6 +166,8 @@ class Display{
   bool first_print = true; // первая печать на очищенном экране или просто первая печать в программе
   bool first_com0_print = true; // первая печать на экран  коианды 0, так как дальше обновляется только количество секунд
   bool first_com2_print = true; // первая печать на экран  коианды 2, так как дальше обновляется только количество секунд
+  bool first_com11_print = true; // первая печать на экран  коианды 11, так как дальше обновляется только количество секунд
+  bool first_com12_print = true; // первая печать на экран  коианды 12, так как дальше обновляется только количество секунд
   int counter = 0; // счетчик итераций (надо для отображения заряда)
   int sum_charge_12 = 0; // сумма показаний с делителя напряжения на 12V
   int max_iter = 100; //200; // количество измерений для усреднения
@@ -247,7 +256,13 @@ class Display{
     if(num_message!=2){
       first_com2_print = true;
     }
-    if((first_com0_print)&&(first_com2_print)){ // если одна из этих 2 команд уже на экране, то не надо очищать экран
+    if(num_message!=11){
+      first_com11_print = true;
+    }
+    if(num_message!=12){
+      first_com12_print = true;
+    }
+    if((first_com0_print)&&(first_com2_print)&&(first_com11_print)&&(first_com12_print)){ // если одна из этих 2 команд уже на экране, то не надо очищать экран
       lcd.clear();
     }
     first_print = true;
@@ -471,12 +486,36 @@ class Display{
       lcd.print("HAЖMИTE KHOПKY CTAPT");
     break;
     case 11: // время свечения 
-      lcd.setCursor(0, 2);
-      lcd.print("   BPEMЯ CBEЧEHИЯ");
+      if(first_com11_print){ // (arr[0]==-1) добавлено, так как при выходе из настроек надо удалять 
+        lcd.setCursor(0, 2);
+        lcd.print("   BPEMЯ CBEЧEHИЯ");
+      }
+      if(arr[0]>-1){
+        lcd.setCursor(0, 3);
+        lcd.print("   ");
+        lcd.print(arr[0], DEC);
+        lcd.print(" CEK");
+      } else{
+        lcd.setCursor(0, 3);
+        lcd.print("                  ");
+      }
+      first_com11_print = false;
     break;
-    case 12: // время ИЗМЕРЕНИЯ
-      lcd.setCursor(0, 2);
-      lcd.print("   BPEMЯ И3MEPEHИЯ");
+    case 12: // ВРЕМЯ ИЗМЕРЕНИЯ
+      if(first_com12_print){
+        lcd.setCursor(0, 2);
+        lcd.print("   BPEMЯ И3MEPEHИЯ");
+      }
+      if(arr[0]>-1){
+        lcd.setCursor(0, 3);
+        lcd.print("   ");
+        lcd.print(arr[0], DEC);
+        lcd.print(" CEK");
+      } else{
+        lcd.setCursor(0, 3);
+        lcd.print("                  ");
+      }
+      first_com12_print = false;
     break;
     case 13: // ВЫХОД
       lcd.setCursor(0, 2);
@@ -560,9 +599,10 @@ class Settings{ // класс для работы с вентилятором о
   const int ok_click_time = 1500; // время, которое надо зажимать кнопку ok, чтобы войти в настройки
   int ok_num = -1;
   int delay_after_on_off_click = 0;
-  const int parametr_n = 2; // количество параметров (без выхода)
+  static const int parametr_n = 2; // количество параметров (без выхода)
   const int n_delay = 4; // на сколько делить базовый интервал задержки после срабатывания кнопки
   Display& display; // сейчас обьект передается просто по ссылке. возможно, сделать unique ptr
+  Parametr parametr[parametr_n];
   public:
   Settings(int delay_between_loop_iter_, int delay_after_on_off_click_, Display& display_):display(display_){
     delay_between_loop_iter = delay_between_loop_iter_; 
@@ -573,6 +613,14 @@ class Settings{ // класс для работы с вентилятором о
     pinMode(right_pin, INPUT);
     pinMode(up_pin, INPUT);
     pinMode(down_pin, INPUT);
+    parametr[0].low_border = 0; // свечение
+    parametr[0].high_border = 180;
+    parametr[0].number = 18;
+    parametr[0].k = 10;
+    parametr[1].low_border = 1; // измерение
+    parametr[1].high_border = 180;
+    parametr[1].number = 18;
+    parametr[1].k = 10;
   }
 
   bool check_input_settings(){
@@ -593,9 +641,9 @@ class Settings{ // класс для работы с вентилятором о
     if(check_input_settings()==false){
       return;
     } else{
-      int parametr = 0; // номер параметира, выбранного для изменения
-      int myArray[] = {3, 3};
-      display.print_message((11+parametr), myArray);
+      int parametr_number = 0; // номер параметира, выбранного для изменения
+      int myArray[] = {-1, -1};
+      display.print_message((11+parametr_number), myArray);
       delay(delay_after_on_off_click); // возможно, увеличить
       bool choice_paramter = false; // если пользователь выбрал параметр, то true, если снова вернулся в выбор параметров - false
       while(true){
@@ -607,28 +655,57 @@ class Settings{ // класс для работы с вентилятором о
         int up = digitalRead(up_pin);
         if(choice_paramter == false){
           if(right == 1){// правая кнопка нажата
-            parametr++;
-            parametr = parametr%(parametr_n + 1);
-            display.print_message((11+parametr), myArray); // выводить на экран сообщение
+            parametr_number++;
+            parametr_number = parametr_number%(parametr_n + 1);
+            display.print_message((11+parametr_number), myArray);
             delay((int)(delay_after_on_off_click/n_delay));
           }else if(left == 1){// левая кнопка нажата
-            parametr--;
-            if(parametr == -1){
-              parametr = 2;
+            parametr_number--;
+            if(parametr_number == -1){
+              parametr_number = 2;
             }
-            display.print_message((11+parametr), myArray); // выводить на экран сообщение
+            display.print_message((11+parametr_number), myArray);
             delay((int)(delay_after_on_off_click/n_delay));
           }else if(ok == 1){ // кнопка ok нажата
-            if(parametr == parametr_n){
+            if(parametr_number == parametr_n){
               display.print_message(10, myArray);// вывод на экран сообщения 10
               delay(delay_after_on_off_click);
               break;
+            } else{
+              myArray[0] = parametr[parametr_number].number*parametr[parametr_number].k;
+              display.print_message((11+parametr_number), myArray);
+              delay((int)(delay_after_on_off_click/n_delay));
             }
             choice_paramter = true;
             // вывод на экран текущего значения параметра
           }
         } else{
-          
+          if(ok==1){ // выход из изменения параметра
+            choice_paramter = false;
+            myArray[0] = -1;
+            display.print_message((11+parametr_number), myArray); 
+            delay((int)(delay_after_on_off_click/n_delay));
+          } else if(up==1){
+            int tmp = parametr[parametr_number].number;
+            tmp++;
+            if(tmp > parametr[parametr_number].high_border){
+              tmp--;
+            }
+            parametr[parametr_number].number = tmp;
+            myArray[0] = parametr[parametr_number].number*parametr[parametr_number].k;
+            display.print_message((11+parametr_number), myArray); 
+            delay((int)(delay_after_on_off_click/(n_delay)));
+          } else if(down == 1){
+            int tmp = parametr[parametr_number].number;
+            tmp--;
+            if(tmp < parametr[parametr_number].low_border){
+              tmp++;
+            }
+            parametr[parametr_number].number = tmp;
+            myArray[0] = parametr[parametr_number].number*parametr[parametr_number].k;
+            display.print_message((11+parametr_number), myArray); 
+            delay((int)(delay_after_on_off_click/(n_delay)));              
+          }
         }
         delay(delay_between_loop_iter);
       }
