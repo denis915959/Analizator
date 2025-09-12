@@ -934,10 +934,10 @@ void loop() { // данные не пишутся на флешку перед �
   bool stop_flag = false;
   int arr_counter = 0; // счетчик для заполнеия массивов с данными датчиов
   settings.input_settings(); // флаг добавить?
+  led_time = settings.read_led_time();
+  measure_time = settings.read_measure_time();
   if(first_loop){
     settings.begin();
-    led_time = settings.read_led_time();
-    measure_time = settings.read_measure_time();
     first_loop = false;
   }
   max_loop_iter = measure_time*measure_count + measure_count*led_time;
