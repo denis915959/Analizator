@@ -12,10 +12,10 @@
 
 char* path = "/data.txt";
 char command = -1;
-const int warming_time = 10; //300; // время прогрева(в секундах)
+const int warming_time = 300; //300; // время прогрева(в секундах)
 const bool led_between_warm = false;; // true - светодиод включается после проверки устройства на весь период прогрева. false - включается сразу после прогрева
-int led_time = 1800;// 450 // время работы светодиода в секундах
-int measure_time = 780; // время измерения (без работы светодиода) в секундах. Возможно, потом суммировать с временем работы светодиода?
+uint32_t led_time = 1800;// 450 // время работы светодиода в секундах
+uint32_t measure_time = 780; // время измерения (без работы светодиода) в секундах. Возможно, потом суммировать с временем работы светодиода?
 
 const int rele_open_time = 10000;//4000  // это время размыкания реле при ошибке 15
 const int first_warming_time = 10; //10 - все работает; время прогрева перед тестом на ошибку 15
@@ -29,7 +29,7 @@ const int read_between_warm = measure_count*5; //25; // количество с�
 const int delay_in_command0 = 960; // 1 секунда в цикле прогрева
 bool do_work = true; // true - цикл while запускается, false - цикл останавливается
 bool do_measure = false; // true - поступила команда начать измерение(именно измерение, не прогрев и не ошибка 15), false - измерение прерывается и не запускается, пока переменная не станет true
-const int max_loop_iter = measure_time*measure_count + measure_count*led_time; // число итераций цикла loop с временем свечения светодиода
+int max_loop_iter = measure_time*measure_count + measure_count*led_time; // число итераций цикла loop с временем свечения светодиода
 bool send_last_message = false; // становится true при прерывании измерения, нужен для отправки сообщения об выключении светодиода и вентилятора на ардуино
 const int delay_between_loop_iter = 10; // задержка между итерациями цикла loop
 const int delay_after_on_off_click = 1000; // время задержки после нажатия кнопки старт стоп
@@ -86,7 +86,7 @@ struct LedCorrection { // структура данных для хранени�
 struct Parametr{
   int low_border = 0;
   int high_border = 0;
-  int number = 0;
+  uint32_t number = 0;
   int k = 0;
 };
 
@@ -494,7 +494,7 @@ class Display{
         lcd.setCursor(0, 3);
         lcd.print("   ");
         lcd.print(arr[0], DEC);
-        lcd.print(" CEK");
+        lcd.print(" CEK    ");
       } else{
         lcd.setCursor(0, 3);
         lcd.print("                  ");
@@ -510,7 +510,7 @@ class Display{
         lcd.setCursor(0, 3);
         lcd.print("   ");
         lcd.print(arr[0], DEC);
-        lcd.print(" CEK");
+        lcd.print(" CEK   ");
       } else{
         lcd.setCursor(0, 3);
         lcd.print("                  ");
@@ -589,6 +589,7 @@ class Kuler{ // класс для работы с вентилятором ох�
 
 class Settings{ // класс для работы с вентилятором охлаждения
   private: 
+  Preferences preferences;
   const int ok_pin = 27;
   const int left_pin = 13;
   const int right_pin = 32;
@@ -603,6 +604,8 @@ class Settings{ // класс для работы с вентилятором о
   const int n_delay = 4; // на сколько делить базовый интервал задержки после срабатывания кнопки
   Display& display; // сейчас обьект передается просто по ссылке. возможно, сделать unique ptr
   Parametr parametr[parametr_n];
+  uint32_t measure_time = 1;
+  uint32_t led_time = 1; //в конструкторе сделать чтение из глобальной памяти
   public:
   Settings(int delay_between_loop_iter_, int delay_after_on_off_click_, Display& display_):display(display_){
     delay_between_loop_iter = delay_between_loop_iter_; 
@@ -613,15 +616,20 @@ class Settings{ // класс для работы с вентилятором о
     pinMode(right_pin, INPUT);
     pinMode(up_pin, INPUT);
     pinMode(down_pin, INPUT);
+  }
+
+  void begin(){
     parametr[0].low_border = 0; // свечение
     parametr[0].high_border = 180;
-    parametr[0].number = 18;
+    parametr[0].number = read_led_num();
     parametr[0].k = 10;
     parametr[1].low_border = 1; // измерение
     parametr[1].high_border = 180;
-    parametr[1].number = 18;
+    parametr[1].number = read_measure_num();
     parametr[1].k = 10;
-  }
+    led_time = read_led_time();
+    measure_time = read_measure_time();
+}  
 
   bool check_input_settings(){
     int ok_button = digitalRead(ok_pin);
@@ -668,6 +676,7 @@ class Settings{ // класс для работы с вентилятором о
             delay((int)(delay_after_on_off_click/n_delay));
           }else if(ok == 1){ // кнопка ok нажата
             if(parametr_number == parametr_n){
+              save_parametrs(parametr[0].number, parametr[1].number);
               display.print_message(10, myArray);// вывод на экран сообщения 10
               delay(delay_after_on_off_click);
               break;
@@ -677,7 +686,6 @@ class Settings{ // класс для работы с вентилятором о
               delay((int)(delay_after_on_off_click/n_delay));
             }
             choice_paramter = true;
-            // вывод на экран текущего значения параметра
           }
         } else{
           if(ok==1){ // выход из изменения параметра
@@ -686,7 +694,7 @@ class Settings{ // класс для работы с вентилятором о
             display.print_message((11+parametr_number), myArray); 
             delay((int)(delay_after_on_off_click/n_delay));
           } else if(up==1){
-            int tmp = parametr[parametr_number].number;
+            uint32_t tmp = parametr[parametr_number].number;
             tmp++;
             if(tmp > parametr[parametr_number].high_border){
               tmp--;
@@ -696,7 +704,7 @@ class Settings{ // класс для работы с вентилятором о
             display.print_message((11+parametr_number), myArray); 
             delay((int)(delay_after_on_off_click/(n_delay)));
           } else if(down == 1){
-            int tmp = parametr[parametr_number].number;
+            uint32_t tmp = parametr[parametr_number].number;
             tmp--;
             if(tmp < parametr[parametr_number].low_border){
               tmp++;
@@ -710,6 +718,45 @@ class Settings{ // класс для работы с вентилятором о
         delay(delay_between_loop_iter);
       }
     }
+    led_time = read_led_time();
+    measure_time = read_measure_time();
+  }
+
+  void save_parametrs(uint32_t led, uint32_t measure) { // Функция для сохранения двух переменных типа char
+    preferences.begin("appChars", false);
+    preferences.putUInt("led_number", led);
+    preferences.putUInt("measure_number", measure);
+    preferences.end();
+  }
+
+  uint32_t read_led_time() {
+    preferences.begin("appChars", true);
+    uint32_t tmp = preferences.getUInt("led_number", 0);
+    uint32_t res = tmp*parametr[0].k;
+    preferences.end();
+    return res;
+  }
+
+  uint32_t read_measure_time() {
+    preferences.begin("appChars", true);
+    uint32_t tmp = preferences.getUInt("measure_number", 0);
+    uint32_t res = tmp*parametr[1].k;
+    preferences.end();
+    return res;
+  }
+
+  uint32_t read_led_num() {
+    preferences.begin("appChars", true);
+    uint32_t res = preferences.getUInt("led_number", 0);
+    preferences.end();
+    return res;
+  }
+
+  uint32_t read_measure_num() {
+    preferences.begin("appChars", true);
+    uint32_t res = preferences.getUInt("measure_number", 0);
+    preferences.end();
+    return res;
   }
 };
 
@@ -877,6 +924,7 @@ int myArray[] = {3, 3};
 bool reset = false;
 bool warm_completed = false; // нужен, чтобы если кнопка зажата при включении, не было наложения алгоритма нажатой кнопки на алгоритм проверки и прогрева  датчиков
 double k = 0; // коэффициэнт коррекции при отключении датчика из-за ошибки 15
+bool first_loop = true; // флаг первой итерации
 
 
 void loop() { // данные не пишутся на флешку перед прогревом. попробовать писать данные на флешку
@@ -885,14 +933,18 @@ void loop() { // данные не пишутся на флешку перед �
   int izmer_counter = 0;
   bool stop_flag = false;
   int arr_counter = 0; // счетчик для заполнеия массивов с данными датчиов
-  /*if(settings.check_input_settings() == true)
-    Serial.println("k100");*/
-  settings.input_settings();
+  settings.input_settings(); // флаг добавить?
+  if(first_loop){
+    settings.begin();
+    led_time = settings.read_led_time();
+    measure_time = settings.read_measure_time();
+    first_loop = false;
+  }
+  max_loop_iter = measure_time*measure_count + measure_count*led_time;
   if((on==1)&&(warm_completed)){ // 1
     int stop = 2;
     bool first_iteration = true; // флаг нужен, чтобы выводить на экран 1 раз, иначе мерцание возникает
     while(!SD.begin()){
-      //Serial.println("Card Mount Failed");
       if(first_iteration == true){
         first_iteration = false;
         display.print_message(3, myArray);
@@ -946,6 +998,9 @@ void loop() { // данные не пишутся на флешку перед �
       led_rele = 2;
     }
     if(loop_counter == 0){// этот блок вызывается только на первой итерации цикла loop  // loop_counter
+      led_time = settings.read_led_time(); // ????
+      measure_time = settings.read_measure_time();
+      max_loop_iter = measure_time*measure_count + measure_count*led_time;
       if(no_print_display==false){
         display.print_message(1, myArray);
       }
@@ -1129,7 +1184,6 @@ void loop() { // данные не пишутся на флешку перед �
       ppm_common = (ppm_1_medium + ppm_2_medium/* + ppm_3_medium*/) / 2;//3;
       temp_common = (temp_1_medium + temp_2_medium/* + temp_3_medium*/) / 2;//3;
       if(do_measure == true){
-        //Serial.println(k);
         if((ppm_1_medium == 15)||(ppm_2_medium == 15)){
           if((ppm_1_medium == 15)&&(ppm_2_medium != 15)){ // датчик 1 выдал ошибку 15       
             if(k==0){
