@@ -1184,8 +1184,8 @@ void loop() { // данные не пишутся на флешку перед �
       ppm_common = (ppm_1_medium + ppm_2_medium/* + ppm_3_medium*/) / 2;//3;
       temp_common = (temp_1_medium + temp_2_medium/* + temp_3_medium*/) / 2;//3;
       if(do_measure == true){
-        if((ppm_1_medium == 15)||(ppm_2_medium == 15)){
-          if((ppm_1_medium == 15)&&(ppm_2_medium != 15)){ // датчик 1 выдал ошибку 15       
+        if((ppm_1_medium == 15)||(ppm_2_medium == 15)||((ppm_1_medium > 0)&&(ppm_1_medium < 150))){
+          if(((ppm_1_medium == 15)&&(ppm_2_medium != 15)) || ((ppm_1_medium > 0)&&(ppm_1_medium < 150))){ // датчик 1 выдал ошибку 15 (блок ИЛИ убрать потом, это эрзац-решение для испытаний в начале октября!)       
             if(k==0){
               int common_sum = 0;
               int sensor_2_sum = 0;
