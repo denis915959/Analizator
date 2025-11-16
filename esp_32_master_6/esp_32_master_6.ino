@@ -1,10 +1,17 @@
+
+#include "Arduino.h"
 #include "Wire.h"
 #include <FS.h>
 #include <SD.h>
+#include <sd_defines.h>
+#include <sd_diskio.h>
 #include <SPI.h>
 #include <ESP8266_LCD_1602_RUS.h>
 #include <font_LCD_1602_RUS.h>
 #include <Preferences.h>
+#include <vector>
+
+using std::vector;
 
 #define I2C_DEV_ADDR_1 0x09
 #define I2C_DEV_ADDR_2 0x55
@@ -76,6 +83,131 @@ char sensor_rele = 0;
 char led_rele = 0; // 0 - не инициализировано, 1 - выключено, 2 - включено
 char kuler_rele = 0; // 0 - не инициализировано, 1 - выключено, 2 - включено
 
+
+#include <iostream> //библиотеки
+#include <fstream>
+#include <string>
+#include <vector>
+#include <list>
+#include <sstream>
+#include <algorithm>
+
+using namespace std;
+
+int number_cycles = 0;
+int b;
+int b1;
+int coord1;
+
+double a_min0;
+
+double a_max0;
+
+double znachen;
+double znachen1;
+double znachen2;
+double plosh;
+double volumec = 0.000008305;
+double V_S;
+
+double assimil1;
+double assimil2;
+double assimil3;
+
+double razn01;
+double razn02;
+double razn03;
+std::vector<double> razn1;
+std::vector<double> razn2;
+std::vector<double> razn3;
+std::vector<double> razn0;
+std::vector<double> listCO21;
+std::vector<double> listCO22;
+std::vector<double> listCO23;
+//std::vector<double> temp1;
+//std::vector<double> temp2;
+//std::vector<double> temp3;
+//std::vector<double> time1;
+std::vector<double> b_begin;
+std::vector<double> b_end;
+std::vector<std::string> segments;
+
+void assim() {
+    razn1.clear();
+    razn2.clear();
+    razn3.clear();
+    razn01 = 0;
+    razn02 = 0;
+    razn03 = 0;
+    int cyclass = listCO21.size();
+    for (int i4 = 3; i4 < cyclass; i4++) {
+        if ((i4 + 30) < cyclass) {
+            razn01 = listCO21[i4 + 30] - listCO21[i4];
+            if (abs(razn01) <= 40) {
+                razn1.push_back(razn01);
+            }
+            razn02 = listCO22[i4 + 30] - listCO22[i4];
+            if (abs(razn02) <= 40) {
+                razn2.push_back(razn02);
+            }
+            razn03 = listCO23[i4 + 30] - listCO23[i4];
+            if (abs(razn03) <= 40) {
+                razn3.push_back(razn03);
+            }
+        }
+    }
+}
+
+void min_max_val() {
+    b1 = razn0.size();
+    for (int i7 = 0; i7 < b1; i7++) {
+        if (i7 == 0) {
+            a_min0 = razn0[i7];
+        }
+        else {
+            if (a_min0 > razn0[i7]) {
+                a_min0 = razn0[i7];
+            }
+        }
+    }
+
+    for (int i8 = 0; i8 < b1; i8++) {
+        if (i8 == 0) {
+            a_max0 = razn0[i8];
+        }
+        else {
+            if (a_max0 < razn0[i8]) {
+                a_max0 = razn0[i8];
+            }
+        }
+    }
+
+}
+
+void val() {
+    for (int i5 = 0; i5 < 3; i5++) {
+        int rvm;
+        razn0.clear();
+        rvm=razn1.size();
+        if (rvm != 0) {
+            if (i5 == 0) {
+                razn0.assign(razn1.begin(), razn1.end());
+                min_max_val();
+                assimil1 = V_S * 1000 / 22.4 * (a_max0 - a_min0) / 30;
+            }
+            if (i5 == 1) {
+                razn0.assign(razn2.begin(), razn2.end());
+                min_max_val();
+                assimil2 = V_S * 1000 / 22.4 * (a_max0 - a_min0) / 30;
+            }
+            if (i5 == 2) {
+                razn0.assign(razn3.begin(), razn3.end());
+                min_max_val();
+                assimil3 = V_S * 1000 / 22.4 * (a_max0 - a_min0) / 30;
+            }
+        }
+    }
+}
 
 
 struct LedCorrection { // структура данных для хранения аппроксимации падения напряжения от светодода
@@ -175,7 +307,8 @@ class Display{
   Charge charge;
 
   LCD_1602_RUS lcd;//(0x27, 20, 4); // Адрес I2C 0x27, 20x4
-  byte customBat[8] = { // символ заряда батареи
+  //::byte customBat[8]
+  ::byte customBat[8] = { // символ заряда батареи
     0b11111,  
     0b11111,  
     0b11111,  
@@ -216,7 +349,7 @@ class Display{
     if((first_print)||(change_bat)){ // либо если первая печать, либо если надо поменять индикацию
       lcd.print(" [");
       for (int i=0; i<num_indicator; i++){
-        lcd.write(byte(7)); // print("|"); 
+        lcd.write(::byte(7)); // print("|"); // lcd.write(byte(7));
       }
       for (int i=0; i<(5-num_indicator); i++){
         lcd.print(" "); // print("|"); 
@@ -927,6 +1060,7 @@ double k = 0; // коэффициэнт коррекции при отключе
 bool first_loop = true; // флаг первой итерации
 
 
+
 void loop() { // данные не пишутся на флешку перед прогревом. попробовать писать данные на флешку
   int local_loop_counter = 0; // локальный счетчик итераций цикла loop (обнуляется после конца каждого измерения)
   int on = digitalRead(on_off_pin);
@@ -936,6 +1070,9 @@ void loop() { // данные не пишутся на флешку перед �
   settings.input_settings(); // флаг добавить?
   led_time = settings.read_led_time();
   measure_time = settings.read_measure_time();
+  if(loop_counter%100==0){
+    display.update_charge();//////
+  }
   if(first_loop){
     settings.begin();
     first_loop = false;
@@ -944,15 +1081,20 @@ void loop() { // данные не пишутся на флешку перед �
   if((on==1)&&(warm_completed)){ // 1
     int stop = 2;
     bool first_iteration = true; // флаг нужен, чтобы выводить на экран 1 раз, иначе мерцание возникает
+    int counter_for_charge = 0;
     while(!SD.begin()){
       if(first_iteration == true){
         first_iteration = false;
         display.print_message(3, myArray);
+        if(counter_for_charge%100==0){ // вот здесь написать
+          display.update_charge();////
+        }
       }
       stop = digitalRead(on_off_pin);
       if(stop==1){
         break;
       }
+      counter_for_charge++;
     }
     if(stop!=1){
       do_measure = true;
