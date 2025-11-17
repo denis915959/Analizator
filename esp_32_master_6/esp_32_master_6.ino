@@ -788,6 +788,7 @@ class Settings{ // класс для работы с вентилятором о
       delay(delay_after_on_off_click); // возможно, увеличить
       bool choice_paramter = false; // если пользователь выбрал параметр, то true, если снова вернулся в выбор параметров - false
       while(true){
+        display.update_charge();
         // здесь чтение данных с кнопок
         int ok = digitalRead(ok_pin);
         int left = digitalRead(left_pin);
@@ -1070,9 +1071,9 @@ void loop() { // данные не пишутся на флешку перед �
   settings.input_settings(); // флаг добавить?
   led_time = settings.read_led_time();
   measure_time = settings.read_measure_time();
-  if(loop_counter%100==0){
-    display.update_charge();//////
-  }
+  //if(loop_counter%2==0){
+  display.update_charge();//////
+  //}
   if(first_loop){
     settings.begin();
     first_loop = false;
@@ -1083,18 +1084,19 @@ void loop() { // данные не пишутся на флешку перед �
     bool first_iteration = true; // флаг нужен, чтобы выводить на экран 1 раз, иначе мерцание возникает
     int counter_for_charge = 0;
     while(!SD.begin()){
+      display.update_charge();////
       if(first_iteration == true){
         first_iteration = false;
         display.print_message(3, myArray);
-        if(counter_for_charge%100==0){ // вот здесь написать
-          display.update_charge();////
-        }
+        //if(counter_for_charge%2==0){ // вот здесь написать
+          //display.update_charge();////
+        //}
       }
       stop = digitalRead(on_off_pin);
       if(stop==1){
         break;
       }
-      counter_for_charge++;
+      //counter_for_charge++;
     }
     if(stop!=1){
       do_measure = true;
