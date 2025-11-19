@@ -226,9 +226,10 @@ struct Parametr{
 class Charge{ // класс для считывания данных с делителя (с постобработкой данных с делителя) и конвертации усредненного значения в проценты.
   private:
     const int charge_pin_12 = 33; // пин делителя 12В 
-    const int charge_pin_led = 35; // пин делителя светодиода 
-    int low_border = 2067; //нижняя граница (8.5 В)
-    int high_border = 3075; //3065;//3050;//3111; //верхняя граница (ее надо увеличить после подключения светодиода)
+    //const int charge_pin_led = 35; // пин делителя светодиода 
+    int low_border = 1557; //2067; //нижняя граница (6.4 В) /*(8.5 В)*/
+    int high_border = 2050; //3075;  //верхняя граница (ее надо увеличить после подключения светодиода)
+    // ниже 30% падение замедляется, я бы напряжение, соответствующее 30%, приравнял к 40%. то есть не линейная зависимость, а с изломом
     //float volt_1 = (high_border - low_border)/100; // 3.9
     /*static const int tableSize = 6; // static const позволяет использовать значение на этапе компиляции
     const Voltage_Percent voltage_percent_list[tableSize] = {
@@ -239,15 +240,15 @@ class Charge{ // класс для считывания данных с дели
       {10.3,  20.0},
       {8.5,   0.0}
     };*/
-    static const int pointsCount = 4; // кол-во точек в led_correction
-    const LedCorrection approximation[pointsCount] = {
-      {0.0, 0.0},
-      {1500.0, 0.0038},
-      {1670.0, 0.009/*0.0115*/},
-      {2410.0, 0.018/*0.0228*/}
-    };
+    //static const int pointsCount = 4; // кол-во точек в led_correction
+    //const LedCorrection approximation[pointsCount] = {
+   //   {0.0, 0.0},
+  //      {1500.0, 0.0038},
+    //    {1670.0, 0.009/*0.0115*/},
+//     {2410.0, 0.018/*0.0228*/}
+  //  };
 
-    float get_correction_led(int charge_led) { // возвращает коэффициэнт коррекции для светодиода (через линейную аппроксимацию)
+    /*float get_correction_led(int charge_led) { // возвращает коэффициэнт коррекции для светодиода (через линейную аппроксимацию)
       if (charge_led <= approximation[0].led) return approximation[0].k; // Если charge_led меньше минимального значения, берём первую точку
       if (charge_led >= approximation[pointsCount - 1].led) return approximation[pointsCount - 1].k; // Если y больше максимального, берём последнюю точку
   
@@ -263,19 +264,20 @@ class Charge{ // класс для считывания данных с дели
         }
       }
       return 0.0; // на случай ошибки
-    }
+    }*/
 
   public:
   Charge(){
     pinMode(charge_pin_12, INPUT);
-    pinMode(charge_pin_led, INPUT);
+    //pinMode(charge_pin_led, INPUT);
   }
 
   int get_delitel_12(){ // вывод данных с делителя 12В, сюда добавить пересчет данных с делителя 12В в зависимости от данных с делителя светодиода
     int charge = analogRead(charge_pin_12); 
-    int charge_led = analogRead(charge_pin_led); // читаем данные с делителя напряжения светодиода
+    /*int charge_led = analogRead(charge_pin_led); // читаем данные с делителя напряжения светодиода
     float k = get_correction_led(charge_led);
-    int result = (int)(charge*(1-(approximation[pointsCount-1].k - k))); // т.е берем max значение k и из него вычитаем
+    int result = (int)(charge*(1-(approximation[pointsCount-1].k - k))); // т.е берем max значение k и из него вычитаем*/
+    int result = charge;
     return(result);
   }
 
