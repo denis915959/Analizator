@@ -656,6 +656,14 @@ class Display{
       lcd.setCursor(0, 2);
       lcd.print("       BЫXOД");
     break;
+    case 14: // низкий заряд аккумулятора, нельзя начать новое измерение
+      lcd.setCursor(0, 1);
+      lcd.print("HEЛЬ3Я HAЧATЬ И3ME-");
+      lcd.setCursor(0, 2);
+      lcd.print("PEHИE, HИ3KИЙ 3APЯД");
+      lcd.setCursor(0, 3);
+      lcd.print("AKKYMYЛЯTOPA");
+    break;
     /*case 11: // ДЛЯ НАЧАЛА ИЗМЕРЕНИЯ НАЖМИТЕ СТАРТ 
       lcd.setCursor(0, 1);
       lcd.print("ДЛЯ BXOДA B");
@@ -678,6 +686,12 @@ class Display{
       counter=0;
       sum_charge_12=0;
     }    
+  }
+
+  int get_percents(){ // выводит проценты зарядки
+    int result = charge.get_delitel_12();
+    result = charge.convert_charge_to_percent(result);
+    return(result);
   }
 };
 
@@ -1061,7 +1075,7 @@ bool reset = false;
 bool warm_completed = false; // нужен, чтобы если кнопка зажата при включении, не было наложения алгоритма нажатой кнопки на алгоритм проверки и прогрева  датчиков
 double k = 0; // коэффициэнт коррекции при отключении датчика из-за ошибки 15
 bool first_loop = true; // флаг первой итерации
-
+bool low_percent_message = false; // true, если выведено сообщение о малом заряде аккумулятора
 
 
 void loop() { // данные не пишутся на флешку перед прогревом. попробовать писать данные на флешку
@@ -1073,15 +1087,22 @@ void loop() { // данные не пишутся на флешку перед �
   settings.input_settings(); // флаг добавить?
   led_time = settings.read_led_time();
   measure_time = settings.read_measure_time();
-  //if(loop_counter%2==0){
-  display.update_charge();//////
-  //}
+  display.update_charge();
   if(first_loop){
     settings.begin();
     first_loop = false;
   }
+  /*if((on==1)&&(low_percent_message==true)){ // печать сообщения Чтобы начать измерение, нажмите старт при повторном нажатии кнопки старт/стоп
+    low_percent_message = false;
+    display.print_message(10, myArray);
+  }*/
   max_loop_iter = measure_time*measure_count + measure_count*led_time;
-  if((on==1)&&(warm_completed)){ // 1
+  if((on==1)&&(warm_completed)&&(display.get_percents()==0)) {
+    if(low_percent_message==false){
+      display.print_message(14, myArray);
+    }
+    low_percent_message = true;
+  } else if((on==1)&&(warm_completed)){ // 1
     int stop = 2;
     bool first_iteration = true; // флаг нужен, чтобы выводить на экран 1 раз, иначе мерцание возникает
     int counter_for_charge = 0;
@@ -1090,9 +1111,6 @@ void loop() { // данные не пишутся на флешку перед �
       if(first_iteration == true){
         first_iteration = false;
         display.print_message(3, myArray);
-        //if(counter_for_charge%2==0){ // вот здесь написать
-          //display.update_charge();////
-        //}
       }
       stop = digitalRead(on_off_pin);
       if(stop==1){
