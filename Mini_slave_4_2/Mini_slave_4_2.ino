@@ -17,6 +17,7 @@ int accuracy = 0;    // Точность
 int min_co2 = 0;     // Минимальное значение CO2
 int command = 0;
 char res = 0;
+//int counter = 0; // для проверки отработки ошибки 15, потом убрать!
 
 // Объявление функции converter_to_number
 int converter_to_number(char* array, int size);
@@ -119,7 +120,11 @@ void onReceive(int len) {
 
   switch (command) {
     case 1: // Считать данные CO2 и температуру
+      //counter++;
       tmp = readCO2();
+      /*if(counter>190){ // убрать потом, это для проверки отработки ошибки 15
+        tmp = 15;
+      }*/
       if (tmp >= 0) {
         ppm = tmp;
         res = 0;
@@ -154,27 +159,27 @@ void onReceive(int len) {
   //Serial.print(sensor_rele);
  // Serial.println(" rele");
   if(sensor_rele==22){
-    digitalWrite(2, HIGH);
     digitalWrite(3, HIGH);
+    digitalWrite(2, HIGH);
     /*delay(8000);
     digitalWrite(2, LOW);
     digitalWrite(3, LOW);*/
   }
   if(sensor_rele==21){
-    digitalWrite(2, HIGH);
-    digitalWrite(3, LOW);
+    digitalWrite(3, HIGH);
+    digitalWrite(2, LOW);
     //delay(8000);
     //digitalWrite(2, LOW);
   }
   if(sensor_rele==12){
-    digitalWrite(3, HIGH);
-    digitalWrite(2, LOW);
+    digitalWrite(2, HIGH);
+    digitalWrite(3, LOW);
     //delay(8000);
     //digitalWrite(3, LOW);
   }
   if((sensor_rele==11)||(sensor_rele==0)){
-    digitalWrite(2, LOW);
     digitalWrite(3, LOW);
+    digitalWrite(2, LOW);
   }
 
   if(led_rele==2){
@@ -207,8 +212,8 @@ void setup() {
   Wire.onRequest(onRequest);
   Wire.begin((uint8_t)I2C_DEV_ADDR);
   mhzSerial.begin(9600);
-  pinMode(2, OUTPUT); // первый датчик реле
-  pinMode(3, OUTPUT); // второй датчик реле
+  pinMode(3, OUTPUT); // первый датчик реле
+  pinMode(2, OUTPUT); // второй датчик реле
   pinMode(4, OUTPUT); // светодиод реле
   pinMode(5, OUTPUT); // вентилятор реле
   digitalWrite(4, LOW);

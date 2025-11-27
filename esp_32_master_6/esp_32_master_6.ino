@@ -225,7 +225,7 @@ struct Parametr{
 // этот класс нужен для вынесения логики, связанной с с расчетом процентов и постобработкой данных с делителя 12В, за пределы класса Display
 class Charge{ // класс для считывания данных с делителя (с постобработкой данных с делителя) и конвертации усредненного значения в проценты.
   private:
-    const int charge_pin_12 = 33; // пин делителя 12В 
+    const int charge_pin_12 = 35; //33; // пин делителя 12В 
     //const int charge_pin_led = 35; // пин делителя светодиода 
     int low_border = 1557; //2067; //нижняя граница (6.4 В) /*(8.5 В)*/
     int high_border = 2050; //3075;  //верхняя граница (ее надо увеличить после подключения светодиода)
@@ -740,7 +740,7 @@ class Settings{ // класс для работы с вентилятором о
   private: 
   Preferences preferences;
   const int ok_pin = 27;
-  const int left_pin = 13;
+  const int left_pin = 12; //13;
   const int right_pin = 32;
   const int up_pin = 26; // кнопка вверх
   const int down_pin = 14; // кнопка вниз
