@@ -226,7 +226,7 @@ struct Parametr{
 class Charge{ // класс для считывания данных с делителя (с постобработкой данных с делителя) и конвертации усредненного значения в проценты.
   private:
     const int charge_pin_12 = 35; //33; // пин делителя 12В 
-    //const int charge_pin_led = 35; // пин делителя светодиода 
+    const int charge_pin_led = 33; // пин делителя светодиода 
     int low_border = 1557; //2067; //нижняя граница (6.4 В) /*(8.5 В)*/
     int high_border = 2050; //3075;  //верхняя граница (ее надо увеличить после подключения светодиода)
     // ниже 30% падение замедляется, я бы напряжение, соответствующее 30%, приравнял к 40%. то есть не линейная зависимость, а с изломом
@@ -269,14 +269,17 @@ class Charge{ // класс для считывания данных с дели
   public:
   Charge(){
     pinMode(charge_pin_12, INPUT);
-    //pinMode(charge_pin_led, INPUT);
+    pinMode(charge_pin_led, INPUT);
   }
 
   int get_delitel_12(){ // вывод данных с делителя 12В, сюда добавить пересчет данных с делителя 12В в зависимости от данных с делителя светодиода
     int charge = analogRead(charge_pin_12); 
-    /*int charge_led = analogRead(charge_pin_led); // читаем данные с делителя напряжения светодиода
-    float k = get_correction_led(charge_led);
-    int result = (int)(charge*(1-(approximation[pointsCount-1].k - k))); // т.е берем max значение k и из него вычитаем*/
+    int result = charge;
+    return(result);
+  }
+
+   int get_delitel_led(){ // вывод данных с делителя 12В, сюда добавить пересчет данных с делителя 12В в зависимости от данных с делителя светодиода
+    int charge = analogRead(charge_pin_led); 
     int result = charge;
     return(result);
   }
@@ -292,6 +295,19 @@ class Charge{ // класс для считывания данных с дели
     }
     return(percents);
   }
+
+  int convert_led_to_percent(float medium){ // добавить сюда нормальную конвертацию!!! сначала просто в % по заряду, потом добавить поправку по яркости
+    return((int)medium);
+    /*float percent_1 = (high_border - low_border)/100;
+    int percents = (int)((medium - low_border)/percent_1);
+    if(percents>100){
+      return(100);
+    }
+    if(percents<0){
+      return(0);
+    }
+    return(percents);*/
+  }
 };
 
 
@@ -302,10 +318,14 @@ class Display{
   bool first_com2_print = true; // первая печать на экран  коианды 2, так как дальше обновляется только количество секунд
   bool first_com11_print = true; // первая печать на экран  коианды 11, так как дальше обновляется только количество секунд
   bool first_com12_print = true; // первая печать на экран  коианды 12, так как дальше обновляется только количество секунд
-  int counter = 0; // счетчик итераций (надо для отображения заряда)
-  int sum_charge_12 = 0; // сумма показаний с делителя напряжения на 12V
-  int max_iter = 100; //200; // количество измерений для усреднения
-  int percent = 100; // заряд в процентах
+  int counter_12 = 0; // счетчик итераций (надо для отображения заряда)
+  int counter_led = 0;
+  int sum_charge_12 = 0; // сумма показаний с делителя напряжения на 12V в цикле loop
+  int sum_led = 0; // сумма показаний с делителя напряжения от светодиода в цикле loop
+  int max_iter_12 = 100; //200; // количество измерений для усреднения измерения заряда
+  int max_iter_led = 25;
+  int percent_12 = 100; // заряд в процентах
+  int percent_led = 100; // заряд в процентах  
   Charge charge;
 
   LCD_1602_RUS lcd;//(0x27, 20, 4); // Адрес I2C 0x27, 20x4
@@ -318,6 +338,17 @@ class Display{
     0b11111, 
     0b11111,
     0b11111,
+    0b00000
+  };
+
+  ::byte customLed[8] = { // символ солнышко для яркости светодиода
+    0b00000,  
+    0b10101,  
+    0b01110,  
+    0b11011, 
+    0b01110, 
+    0b10101,
+    0b00000,
     0b00000
   };
 
@@ -356,7 +387,11 @@ class Display{
       for (int i=0; i<(5-num_indicator); i++){
         lcd.print(" "); // print("|"); 
       }
-      lcd.print("]");
+      lcd.print("] ");
+      if(first_print){ // вывод символа солнышко
+        lcd.setCursor(14, 0);
+        lcd.write(::byte(0));
+      }
     }
     if(charge==9){
       lcd.setCursor(10, 0); //???
@@ -364,6 +399,16 @@ class Display{
     }
     first_print = false;
   }
+
+ void print_led(int led){
+    lcd.setCursor(16, 0);
+    lcd.print("    ");
+    lcd.setCursor(16, 0);
+    led = led - 2000;
+    lcd.print(led, DEC);
+    lcd.print("%");
+  }
+
   public:
   Display() : lcd(0x27, 20, 4){}
 
@@ -371,17 +416,23 @@ class Display{
     lcd.init();
     lcd.backlight();
     lcd.createChar(7, customBat);
+    lcd.createChar(0, customLed);
 
     delay(500);
-    int sum_first = 0;
+    int sum_first_12 = 0;
+    int sum_first_led = 0;
     int k=75;
     for(int i=0; i<k; i++){
-      sum_first+=charge.get_delitel_12();
+      sum_first_12+=charge.get_delitel_12();
+      sum_first_led+=charge.get_delitel_led();
       delay(10);
     }
-    float medium = sum_first/k;
-    percent = charge.convert_charge_to_percent(medium); // сделать глобальной
-    print_battery(percent);
+    float medium_12 = sum_first_12/k;
+    float medium_led = sum_first_led/k;    
+    percent_12 = charge.convert_charge_to_percent(medium_12); // сделать глобальной
+    percent_led = charge.convert_led_to_percent(medium_led);
+    print_battery(percent_12);
+    print_led(percent_led);
   }
 
   void print_message(/*int charge, */int num_message, int arr[]){ // печатает сообщения. На вход номер команды и дополнительная информация (в массиве она лекжит). Некоторые команды (0 и 2) умные и обновляют только секунды, чтобы остальное изображение не мерцало
@@ -403,7 +454,8 @@ class Display{
     first_print = true;
     //delay(10);
     int k;
-    print_battery(percent);//charge);
+    print_battery(percent_12);
+    print_led(percent_led);
     switch(num_message) {
     case 0: // проверка окончена. прогрев завершится через n сек
       if(first_com0_print){ // т.е все сообщение печатается только 1 раз, дальше обновляются только секунды
@@ -675,17 +727,29 @@ class Display{
 
   void update_charge(){ // этот метод должен вызываться в loop (или любом другом цикле), он считывает данные с делителя 12В и делает усреднение по заранее заданному числу измерений. Если процент меньше текущего, то он автоматически обновляется на экране
     sum_charge_12+=charge.get_delitel_12(); // здесь get_delitel
-    counter++;
-    if(counter==max_iter){
-      float medium = sum_charge_12/max_iter;
-      int percent_tmp = charge.convert_charge_to_percent(medium);
-      if(percent_tmp < percent){
-        percent = percent_tmp;
-        print_battery(percent);
+    sum_led+=charge.get_delitel_led();
+    counter_12++;
+    counter_led++;
+    if(counter_12==max_iter_12){
+      float medium_12 = sum_charge_12/max_iter_12;
+      int percent_tmp_12 = charge.convert_charge_to_percent(medium_12);
+      if(percent_tmp_12 < percent_12){
+        percent_12 = percent_tmp_12;
+        print_battery(percent_12);
       }
-      counter=0;
+      counter_12=0;
       sum_charge_12=0;
-    }    
+    } 
+    if(counter_led==max_iter_led){
+      float medium_led = sum_led/max_iter_led;
+      int percent_tmp_led = charge.convert_led_to_percent(medium_led);      
+      if(percent_tmp_led != percent_led){
+        percent_led = percent_tmp_led;
+        print_led(percent_led);
+      }
+      counter_led=0;
+      sum_led=0;      
+    }       
   }
 
   int get_percents(){ // выводит проценты зарядки
