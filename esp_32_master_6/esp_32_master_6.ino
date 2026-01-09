@@ -19,7 +19,7 @@ using std::vector;
 
 char* path = "/data.txt";
 char command = -1;
-const int warming_time = 300; //300; // время прогрева(в секундах)
+const int warming_time = 30; //300; // время прогрева(в секундах)
 const bool led_between_warm = false;; // true - светодиод включается после проверки устройства на весь период прогрева. false - включается сразу после прогрева
 uint32_t led_time = 1800;// 450 // время работы светодиода в секундах
 uint32_t measure_time = 780; // время измерения (без работы светодиода) в секундах. Возможно, потом суммировать с временем работы светодиода?
@@ -390,7 +390,7 @@ class Display{
       lcd.print("] ");
       if(first_print){ // вывод символа солнышко
         lcd.setCursor(14, 0);
-        lcd.write(::byte(0));
+        lcd.write(::byte(6));
       }
     }
     if(charge==9){
@@ -416,7 +416,7 @@ class Display{
     lcd.init();
     lcd.backlight();
     lcd.createChar(7, customBat);
-    lcd.createChar(0, customLed);
+    lcd.createChar(6, customLed);
 
     delay(500);
     int sum_first_12 = 0;
@@ -661,11 +661,7 @@ class Display{
     case 10: // ДЛЯ НАЧАЛА ИЗМЕРЕНИЯ НАЖМИТЕ СТАРТ 
       lcd.setCursor(0, 1);
       lcd.print("ДЛЯ");
-      lcd.print(" HA");
-      lcd.print("Ч");
-      lcd.print("A");
-      lcd.print("Л");
-      lcd.print("A ");
+      lcd.print(" CTAPTA ");
       lcd.print("И");
       lcd.print("3MEPEH");
       lcd.print("ИЯ");
@@ -862,7 +858,7 @@ class Settings{ // класс для работы с вентилятором о
     if(check_input_settings()==false){
       return;
     } else{
-      int parametr_number = 0; // номер параметира, выбранного для изменения
+      int parametr_number = 0; // номер параметра, выбранного для изменения
       int myArray[] = {-1, -1};
       display.print_message((11+parametr_number), myArray);
       delay(delay_after_on_off_click); // возможно, увеличить
