@@ -1,4 +1,7 @@
-
+#include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 #include "Arduino.h"
 #include "Wire.h"
 #include <FS.h>
@@ -19,7 +22,7 @@ using std::vector;
 
 char* path = "/data.txt";
 char command = -1;
-const int warming_time = 30; //300; // время прогрева(в секундах)
+const int warming_time = 120; //300; // время прогрева(в секундах)
 const bool led_between_warm = false;; // true - светодиод включается после проверки устройства на весь период прогрева. false - включается сразу после прогрева
 uint32_t led_time = 1800;// 450 // время работы светодиода в секундах
 uint32_t measure_time = 780; // время измерения (без работы светодиода) в секундах. Возможно, потом суммировать с временем работы светодиода?
@@ -39,8 +42,8 @@ bool do_measure = false; // true - поступила команда начат�
 int max_loop_iter = measure_time*measure_count + measure_count*led_time; // число итераций цикла loop с временем свечения светодиода
 bool send_last_message = false; // становится true при прерывании измерения, нужен для отправки сообщения об выключении светодиода и вентилятора на ардуино
 const int delay_between_loop_iter = 10; // задержка между итерациями цикла loop
-const int delay_after_on_off_click = 1000; // время задержки после нажатия кнопки старт стоп
-const int on_off_pin = 25;
+const int delay_after_on_off_click = 10; // время задержки после нажатия кнопки старт стоп
+//const int on_off_pin = 25;
 
 // Переменные для CO2
 float ppm_1_medium = 0;
@@ -229,6 +232,7 @@ class Charge{ // класс для считывания данных с дели
     const int charge_pin_led = 33; // пин делителя светодиода 
     int low_border = 1557; //2067; //нижняя граница (6.4 В) /*(8.5 В)*/
     int high_border = 2050; //3075;  //верхняя граница (ее надо увеличить после подключения светодиода)
+    const int num_iter_led = 10; // число итераций для усреднения при чтении с делителя светодиода
     // ниже 30% падение замедляется, я бы напряжение, соответствующее 30%, приравнял к 40%. то есть не линейная зависимость, а с изломом
     //float volt_1 = (high_border - low_border)/100; // 3.9
     /*static const int tableSize = 6; // static const позволяет использовать значение на этапе компиляции
@@ -278,9 +282,12 @@ class Charge{ // класс для считывания данных с дели
     return(result);
   }
 
-   int get_delitel_led(){ // вывод данных с делителя 12В, сюда добавить пересчет данных с делителя 12В в зависимости от данных с делителя светодиода
-    int charge = analogRead(charge_pin_led); 
-    int result = charge;
+  int get_delitel_led(){ // вывод данных с делителя 12В, сюда добавить пересчет данных с делителя 12В в зависимости от данных с делителя светодиода
+    int charge_sum = 0;
+    for(int i=0; i<num_iter_led; i++){
+      charge_sum+=analogRead(charge_pin_led); 
+    }
+    int result = (int)(charge_sum/num_iter_led);
     return(result);
   }
 
@@ -318,6 +325,7 @@ class Display{
   bool first_com2_print = true; // первая печать на экран  коианды 2, так как дальше обновляется только количество секунд
   bool first_com11_print = true; // первая печать на экран  коианды 11, так как дальше обновляется только количество секунд
   bool first_com12_print = true; // первая печать на экран  коианды 12, так как дальше обновляется только количество секунд
+  bool command_10_flag = false; // для перезагрузки экрана в режиме ожидания
   int counter_12 = 0; // счетчик итераций (надо для отображения заряда)
   int counter_led = 0;
   int sum_charge_12 = 0; // сумма показаний с делителя напряжения на 12V в цикле loop
@@ -435,6 +443,10 @@ class Display{
     print_led(percent_led);
   }
 
+  bool command_10_printed(){
+    return(command_10_flag);
+  }
+
   void print_message(/*int charge, */int num_message, int arr[]){ // печатает сообщения. На вход номер команды и дополнительная информация (в массиве она лекжит). Некоторые команды (0 и 2) умные и обновляют только секунды, чтобы остальное изображение не мерцало
     if(num_message!=0){
       first_com0_print = true;
@@ -456,6 +468,11 @@ class Display{
     int k;
     print_battery(percent_12);
     print_led(percent_led);
+    if(num_message==10){
+      command_10_flag = true;
+    } else{
+      command_10_flag = false;
+    }
     switch(num_message) {
     case 0: // проверка окончена. прогрев завершится через n сек
       if(first_com0_print){ // т.е все сообщение печатается только 1 раз, дальше обновляются только секунды
@@ -796,14 +813,164 @@ class Kuler{ // класс для работы с вентилятором ох�
 };
 
 
-class Settings{ // класс для работы с вентилятором охлаждения
-  private: 
-  Preferences preferences;
+class Buttons{ // класс для работы с кнопками
+  private:
+  QueueHandle_t q;
+  QueueHandle_t longPressQueue;
+  bool reading_queue = true; // чтобы очередь опрашивалась один раз при нажатии кнопки, а не по числу вызовов методов click
+  uint8_t data = -1;
+  const int on_off_pin = 25;
   const int ok_pin = 27;
   const int left_pin = 12; //13;
   const int right_pin = 32;
   const int up_pin = 26; // кнопка вверх
   const int down_pin = 14; // кнопка вниз
+  const int queue_delay = 50; // в мс
+  const unsigned long LONG_PRESS_TIME = 1500;  // 3 секунды
+
+  static void buttonReaderStatic(void* pv) {
+    Buttons* instance = static_cast<Buttons*>(pv);
+    instance->buttonReader();
+  }
+
+  void buttonReader() { // поток работает до конца работы программы
+    int b1_prev = 0;
+    int b2_prev = 0;
+    int b3_prev = 0;
+    int b4_prev = 0;
+    int b5_prev = 0;
+    int b6_prev = 0;
+    unsigned long int press_start_time = 0; // для проверки длинного нажатия
+    bool ok_pressed = false;
+    unsigned long current_time; // текущее время
+    
+    while(1) { // этот цикл будет длиться до конца выполнения программы
+        current_time = millis(); // текущее время
+        // Кнопка 1
+        int b1 = digitalRead(on_off_pin);
+        if((b1 == 1)&&(b1_prev == 0)) { // если кнопка нажата
+          vTaskDelay(queue_delay / portTICK_PERIOD_MS);
+          b1 = digitalRead(on_off_pin);
+          if((b1 == 1)&&(b1_prev == 0)){
+            uint8_t data = 1; // 1, если кнопка 1 нажата
+            xQueueSend(q, &data, 0);
+          }
+        }
+        b1_prev = b1; 
+        // Кнопка 2
+        int b2 = digitalRead(ok_pin);
+        if((b2 == 1)&&(b2_prev == 1)) { // проверка длинного нажатия
+          if(ok_pressed && press_start_time > 0) {
+            if((current_time - press_start_time) >= LONG_PRESS_TIME) {
+              uint8_t data = 7; // 7 - если кнопка ok была долго нажата
+              xQueueSend(longPressQueue, &data, 0);
+              press_start_time = 0; // Сбрасываем таймер, чтобы не отправлять повторно
+              ok_pressed = false;
+            }
+          }
+        }
+        if((b2 == 1)&&(b2_prev == 0)) { // если кнопка нажата
+          vTaskDelay(queue_delay / portTICK_PERIOD_MS);
+          b2 = digitalRead(ok_pin);
+          if((b2 == 1)&&(b2_prev == 0)){
+            uint8_t data = 2; // 2, если кнопка 2 нажата
+            xQueueSend(q, &data, 0);
+            press_start_time = current_time; // Начало отсчета длинного нажатия
+            ok_pressed = true;
+          }
+          if(b2 == 0){  // Если кнопка отпущена
+            if(ok_pressed) {
+              ok_pressed = false;
+              press_start_time = 0;
+            }
+          }
+        }
+        b2_prev = b2;
+        // Кнопка 3
+        int b3 = digitalRead(left_pin);
+        if((b3 == 1)&&(b3_prev == 0)) { // если кнопка нажата
+          vTaskDelay(queue_delay / portTICK_PERIOD_MS);
+          b3 = digitalRead(left_pin);
+          if((b3 == 1)&&(b3_prev == 0)){
+            uint8_t data = 3; // 3, если кнопка 3 нажата
+            xQueueSend(q, &data, 0);
+          }
+        }
+        b3_prev = b3; 
+        // Кнопка 4
+        int b4 = digitalRead(right_pin);
+        if((b4 == 1)&&(b4_prev == 0)) { // если кнопка нажата
+          vTaskDelay(queue_delay / portTICK_PERIOD_MS);
+          b4 = digitalRead(right_pin);
+          if((b4 == 1)&&(b4_prev == 0)){
+            uint8_t data = 4; // 4, если кнопка 4 нажата
+            xQueueSend(q, &data, 0);
+          }
+        }
+        b4_prev = b4; 
+        // Кнопка 5
+        int b5 = digitalRead(up_pin);
+        if((b5 == 1)&&(b5_prev == 0)) { // если кнопка нажата
+          vTaskDelay(queue_delay / portTICK_PERIOD_MS);
+          b5 = digitalRead(up_pin);
+          if((b5 == 1)&&(b5_prev == 0)){
+            uint8_t data = 5; // 5, если кнопка 5 нажата
+            xQueueSend(q, &data, 0);
+          }
+        }
+        b5_prev = b5;
+        // Кнопка 6
+        int b6 = digitalRead(down_pin);
+        if((b6 == 1)&&(b6_prev == 0)) { // если кнопка нажата
+          vTaskDelay(queue_delay / portTICK_PERIOD_MS);
+          b6 = digitalRead(down_pin);
+          if((b6 == 1)&&(b6_prev == 0)){
+            uint8_t data = 6; // 1, если кнопка 1 нажата
+            xQueueSend(q, &data, 0);
+          }
+        }
+        b6_prev = b6; 
+        vTaskDelay(5 / portTICK_PERIOD_MS); //10 Приостанавливает выполнение текущей задачи на 10 миллисекунд. portTICK_PERIOD_MS - перевод "тиков" в мс
+    }
+  }
+  public:
+  Buttons(){
+    pinMode(on_off_pin, INPUT);
+    pinMode(ok_pin, INPUT);
+    pinMode(left_pin, INPUT);
+    pinMode(right_pin, INPUT);
+    pinMode(up_pin, INPUT);
+    pinMode(down_pin, INPUT);
+    q = xQueueCreate(5, sizeof(uint8_t)); // 2 - приоритет (выше, чем у loop), это запуск потока
+    longPressQueue = xQueueCreate(5, sizeof(uint8_t));
+    if(q == NULL) {
+      Serial.println("ERROR: Failed to create queue!");
+      return;
+    }
+    xTaskCreate(buttonReaderStatic, "btn", 2048, this, 2, NULL);
+  }
+
+  int get_button_number(){
+    if(xQueueReceive(q, &data, 0) == pdTRUE) {
+      return(data);
+    } else{
+      return(0);
+    }
+  }
+
+  bool ok_long_pressed() {
+    uint8_t btnData;
+    if(xQueueReceive(longPressQueue, &btnData, 0) == pdTRUE) {
+      return (btnData == 7);
+    }
+    return false;
+  }
+};
+
+
+class Settings{ // класс для работы с настройками
+  private: 
+  Preferences preferences;
   int ok_counter = 0; // счетчик кнопки Ok, нужен для того, чтобы войти в настройки при непрерывном нажатии кнопки Ok в течение секунды
   int delay_between_loop_iter = 0;
   const int ok_click_time = 1500; // время, которое надо зажимать кнопку ok, чтобы войти в настройки
@@ -812,19 +979,15 @@ class Settings{ // класс для работы с вентилятором о
   static const int parametr_n = 2; // количество параметров (без выхода)
   const int n_delay = 4; // на сколько делить базовый интервал задержки после срабатывания кнопки
   Display& display; // сейчас обьект передается просто по ссылке. возможно, сделать unique ptr
+  Buttons& buttons;
   Parametr parametr[parametr_n];
   uint32_t measure_time = 1;
   uint32_t led_time = 1; //в конструкторе сделать чтение из глобальной памяти
   public:
-  Settings(int delay_between_loop_iter_, int delay_after_on_off_click_, Display& display_):display(display_){
+  Settings(int delay_between_loop_iter_, int delay_after_on_off_click_, Display& display_, Buttons& buttons_):display(display_), buttons(buttons_){ //инициализируем ссылку
     delay_between_loop_iter = delay_between_loop_iter_; 
     ok_num = (int)(ok_click_time/delay_between_loop_iter);
     delay_after_on_off_click = delay_after_on_off_click_;
-    pinMode(ok_pin, INPUT);
-    pinMode(left_pin, INPUT);
-    pinMode(right_pin, INPUT);
-    pinMode(up_pin, INPUT);
-    pinMode(down_pin, INPUT);
   }
 
   void begin(){
@@ -838,20 +1001,11 @@ class Settings{ // класс для работы с вентилятором о
     parametr[1].k = 10;
     led_time = read_led_time();
     measure_time = read_measure_time();
-}  
+  }  
 
   bool check_input_settings(){
-    int ok_button = digitalRead(ok_pin);
-    if(ok_button == 1){
-      ok_counter++;
-    } else{
-      ok_counter = 0;
-    }
-    if(ok_counter>=ok_num){
-      return(true);
-    } else{
-      return(false);
-    }
+    bool res = buttons.ok_long_pressed(); //get_button_number(); //digitalRead(ok_pin);
+    return(res);
   }
 
   void input_settings(){
@@ -866,44 +1020,45 @@ class Settings{ // класс для работы с вентилятором о
       while(true){
         display.update_charge();
         // здесь чтение данных с кнопок
-        int ok = digitalRead(ok_pin);
+        /*int ok = digitalRead(ok_pin);
         int left = digitalRead(left_pin);
         int right = digitalRead(right_pin);    
         int down = digitalRead(down_pin);
-        int up = digitalRead(up_pin);
+        int up = digitalRead(up_pin);*/ // удалить потом
+        int button_num = buttons.get_button_number();
         if(choice_paramter == false){
-          if(right == 1){// правая кнопка нажата
+          if(button_num == 4){// правая кнопка нажата
             parametr_number++;
             parametr_number = parametr_number%(parametr_n + 1);
             display.print_message((11+parametr_number), myArray);
-            delay((int)(delay_after_on_off_click/n_delay));
-          }else if(left == 1){// левая кнопка нажата
+            //delay((int)(delay_after_on_off_click/n_delay));
+          }else if(button_num == 3){// левая кнопка нажата
             parametr_number--;
             if(parametr_number == -1){
               parametr_number = 2;
             }
             display.print_message((11+parametr_number), myArray);
-            delay((int)(delay_after_on_off_click/n_delay));
-          }else if(ok == 1){ // кнопка ok нажата
+            //delay((int)(delay_after_on_off_click/n_delay));
+          }else if(button_num == 2){ // кнопка ok нажата
             if(parametr_number == parametr_n){
               save_parametrs(parametr[0].number, parametr[1].number);
               display.print_message(10, myArray);// вывод на экран сообщения 10
-              delay(delay_after_on_off_click);
+              //delay(delay_after_on_off_click);
               break;
             } else{
               myArray[0] = parametr[parametr_number].number*parametr[parametr_number].k;
               display.print_message((11+parametr_number), myArray);
-              delay((int)(delay_after_on_off_click/n_delay));
+              //delay((int)(delay_after_on_off_click/n_delay));
             }
             choice_paramter = true;
           }
         } else{
-          if(ok==1){ // выход из изменения параметра
+          if(button_num==2){ // выход из изменения параметра
             choice_paramter = false;
             myArray[0] = -1;
             display.print_message((11+parametr_number), myArray); 
-            delay((int)(delay_after_on_off_click/n_delay));
-          } else if(up==1){
+            //delay((int)(delay_after_on_off_click/n_delay));
+          } else if(button_num==5){
             uint32_t tmp = parametr[parametr_number].number;
             tmp++;
             if(tmp > parametr[parametr_number].high_border){
@@ -912,8 +1067,8 @@ class Settings{ // класс для работы с вентилятором о
             parametr[parametr_number].number = tmp;
             myArray[0] = parametr[parametr_number].number*parametr[parametr_number].k;
             display.print_message((11+parametr_number), myArray); 
-            delay((int)(delay_after_on_off_click/(n_delay)));
-          } else if(down == 1){
+            //delay((int)(delay_after_on_off_click/(n_delay))); // возможно, 
+          } else if(button_num == 6){
             uint32_t tmp = parametr[parametr_number].number;
             tmp--;
             if(tmp < parametr[parametr_number].low_border){
@@ -922,7 +1077,7 @@ class Settings{ // класс для работы с вентилятором о
             parametr[parametr_number].number = tmp;
             myArray[0] = parametr[parametr_number].number*parametr[parametr_number].k;
             display.print_message((11+parametr_number), myArray); 
-            delay((int)(delay_after_on_off_click/(n_delay)));              
+            //delay((int)(delay_after_on_off_click/(n_delay)));              
           }
         }
         delay(delay_between_loop_iter);
@@ -1106,9 +1261,10 @@ int sensor_1[7];
 int sensor_2[7];
 int common[7];
 Display display; // конструктор не принимает параметров, значит скобки не нужны
+Buttons buttons;
 Kuler kuler;
 void setup() {
-  pinMode(on_off_pin, INPUT);
+  //pinMode(on_off_pin, INPUT);
   display.begin(); 
   kuler.begin();
   Serial.begin(115200);
@@ -1125,7 +1281,7 @@ void setup() {
 }
 }
 
-Settings settings(delay_between_loop_iter, delay_after_on_off_click, display);
+Settings settings(delay_between_loop_iter, delay_after_on_off_click, display, buttons);
 int data_1[5];
 int data_2[5];
 
@@ -1140,10 +1296,11 @@ bool low_percent_message = false; // true, если выведено сообщ�
 
 void loop() { // данные не пишутся на флешку перед прогревом. попробовать писать данные на флешку
   int local_loop_counter = 0; // локальный счетчик итераций цикла loop (обнуляется после конца каждого измерения)
-  int on = digitalRead(on_off_pin);
+  int on = buttons.get_button_number();//  digitalRead(on_off_pin);
   int izmer_counter = 0;
   bool stop_flag = false;
   int arr_counter = 0; // счетчик для заполнеия массивов с данными датчиов
+  int reboot_display_counter = 0;
   settings.input_settings(); // флаг добавить?
   led_time = settings.read_led_time();
   measure_time = settings.read_measure_time();
@@ -1172,7 +1329,7 @@ void loop() { // данные не пишутся на флешку перед �
         first_iteration = false;
         display.print_message(3, myArray);
       }
-      stop = digitalRead(on_off_pin);
+      stop = buttons.get_button_number();
       if(stop==1){
         break;
       }
@@ -1190,6 +1347,13 @@ void loop() { // данные не пишутся на флешку перед �
     }
   }
   while(do_work){
+    if(display.command_10_printed()){
+      reboot_display_counter++;
+      if(reboot_display_counter==2000){ // раз в минуту, заменить на рассчет 
+        reboot_display_counter = 0;
+        display.print_message(10, myArray);
+      }
+    }
     //static int izmer_counter = 0; // счетчик количества измерений (для вывода на экран)
     bool first_reset = false;
     bool second_reset = false;
@@ -1479,8 +1643,10 @@ void loop() { // данные не пишутся на флешку перед �
           // здесь же вызов check_pribor
           myArray[0]=i;
           display.print_message(0, myArray);
-          display.update_charge();
-          delay(delay_in_command0); // это сделать константой, это 1 секунда при прогреве!!
+          for(int j=0; j<94; j++){ // 94, а не 100, так как update_charge 
+            display.update_charge();
+            delay(delay_between_loop_iter); //(int)delay_in_command0/100);
+          }
         }
       //delay((warming_time + 1) * 1000);    
     } else if(read_co2 == true){
@@ -1490,13 +1656,13 @@ void loop() { // данные не пишутся на флешку перед �
       int off[1];
       bool button = false;
       if(warm_completed){
-        off[0] = digitalRead(on_off_pin);
+        off[0] = buttons.get_button_number();
         if(off[0]==1){
           button = true;
         }
         for(int i=1; i<28; i++){
           delay(step);
-          off[0] = digitalRead(on_off_pin);
+          off[0] = buttons.get_button_number();
           if(off[0]==1){
             button = true;
           }
