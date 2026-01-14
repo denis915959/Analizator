@@ -22,7 +22,7 @@ using std::vector;
 
 char* path = "/data.txt";
 char command = -1;
-const int warming_time = 120; //300; // время прогрева(в секундах)
+const int warming_time = 30; //300; // время прогрева(в секундах)
 const bool led_between_warm = false;; // true - светодиод включается после проверки устройства на весь период прогрева. false - включается сразу после прогрева
 uint32_t led_time = 1800;// 450 // время работы светодиода в секундах
 uint32_t measure_time = 780; // время измерения (без работы светодиода) в секундах. Возможно, потом суммировать с временем работы светодиода?
@@ -723,11 +723,11 @@ class Display{
     break;
     case 14: // низкий заряд аккумулятора, нельзя начать новое измерение
       lcd.setCursor(0, 1);
-      lcd.print("HEЛЬ3Я HAЧATЬ И3ME-");
+      lcd.print("HEЛb3Я HAЧATb И3ME-");
       lcd.setCursor(0, 2);
-      lcd.print("PEHИE, HИ3KИЙ 3APЯД");
+      lcd.print("PEHИE, AKKYMYЛЯTOP");
       lcd.setCursor(0, 3);
-      lcd.print("AKKYMYЛЯTOPA");
+      lcd.print("PA3PЯЖEH");
     break;
     /*case 11: // ДЛЯ НАЧАЛА ИЗМЕРЕНИЯ НАЖМИТЕ СТАРТ 
       lcd.setCursor(0, 1);
@@ -826,7 +826,8 @@ class Buttons{ // класс для работы с кнопками
   const int up_pin = 26; // кнопка вверх
   const int down_pin = 14; // кнопка вниз
   const int queue_delay = 50; // в мс
-  const unsigned long LONG_PRESS_TIME = 1500;  // 3 секунды
+  const unsigned long LONG_PRESS_TIME = 1500;  // 1.5 секунды
+  const unsigned long LONG_UP_PRESS_TIME = 270; //возможно, сделать 250
 
   static void buttonReaderStatic(void* pv) {
     Buttons* instance = static_cast<Buttons*>(pv);
@@ -841,7 +842,11 @@ class Buttons{ // класс для работы с кнопками
     int b5_prev = 0;
     int b6_prev = 0;
     unsigned long int press_start_time = 0; // для проверки длинного нажатия
+    unsigned long int press_up_start_time = 0;
+    unsigned long int press_down_start_time = 0;
     bool ok_pressed = false;
+    bool up_pressed = false;
+    bool down_pressed = false;
     unsigned long current_time; // текущее время
     
     while(1) { // этот цикл будет длиться до конца выполнения программы
@@ -910,23 +915,59 @@ class Buttons{ // класс для работы с кнопками
         b4_prev = b4; 
         // Кнопка 5
         int b5 = digitalRead(up_pin);
+        if((b5 == 1)&&(b5_prev == 1)) { // проверка длинного нажатия
+          if(up_pressed && press_up_start_time > 0) {
+            if((current_time - press_up_start_time) >= LONG_UP_PRESS_TIME) {
+              uint8_t data = 5;
+              xQueueSend(q, &data, 0);
+              press_up_start_time = current_time; // Сбрасываем таймер, чтобы при долгом нажатии можно было снова считать
+              up_pressed = true;
+            }
+          }
+        }
         if((b5 == 1)&&(b5_prev == 0)) { // если кнопка нажата
           vTaskDelay(queue_delay / portTICK_PERIOD_MS);
           b5 = digitalRead(up_pin);
           if((b5 == 1)&&(b5_prev == 0)){
             uint8_t data = 5; // 5, если кнопка 5 нажата
             xQueueSend(q, &data, 0);
+            press_up_start_time = current_time; // Начало отсчета возможного длинного нажатия
+            up_pressed = true;
+          }
+        }
+        if(b5 == 0){  // Если кнопка отпущена
+          if(up_pressed) {
+            up_pressed = false;
+            press_up_start_time = 0;
           }
         }
         b5_prev = b5;
         // Кнопка 6
         int b6 = digitalRead(down_pin);
+        if((b6 == 1)&&(b6_prev == 1)) { // проверка длинного нажатия
+          if(down_pressed && press_down_start_time > 0) {
+            if((current_time - press_down_start_time) >= LONG_UP_PRESS_TIME) {
+              uint8_t data = 6;
+              xQueueSend(q, &data, 0);
+              press_down_start_time = current_time; // Сбрасываем таймер, чтобы при долгом нажатии можно было снова считать
+              down_pressed = true;
+            }
+          }
+        }
         if((b6 == 1)&&(b6_prev == 0)) { // если кнопка нажата
           vTaskDelay(queue_delay / portTICK_PERIOD_MS);
           b6 = digitalRead(down_pin);
           if((b6 == 1)&&(b6_prev == 0)){
-            uint8_t data = 6; // 1, если кнопка 1 нажата
+            uint8_t data = 6; // 5, если кнопка 5 нажата
             xQueueSend(q, &data, 0);
+            press_down_start_time = current_time; // Начало отсчета возможного длинного нажатия
+            down_pressed = true;
+          }
+        }
+        if(b6 == 0){  // Если кнопка отпущена
+          if(down_pressed) {
+            down_pressed = false;
+            press_down_start_time = 0;
           }
         }
         b6_prev = b6; 
@@ -1643,15 +1684,15 @@ void loop() { // данные не пишутся на флешку перед �
           // здесь же вызов check_pribor
           myArray[0]=i;
           display.print_message(0, myArray);
-          for(int j=0; j<94; j++){ // 94, а не 100, так как update_charge 
+          for(int j=0; j<93; j++){ // 93, а не 100, так как update_charge тратит время на выполнение себя 
             display.update_charge();
             delay(delay_between_loop_iter); //(int)delay_in_command0/100);
           }
         }
       //delay((warming_time + 1) * 1000);    
     } else if(read_co2 == true){
-      int cpu_time = (1/measure_count) - delay_between_readings;
-      int step = (int)(delay_between_readings/27); // delay_between_loop_iter
+      //int cpu_time = (1/measure_count) - delay_between_readings;
+      //int step = (int)(delay_between_readings/27); // delay_between_loop_iter
       //delay(cpu_time);
       int off[1];
       bool button = false;
@@ -1660,8 +1701,11 @@ void loop() { // данные не пишутся на флешку перед �
         if(off[0]==1){
           button = true;
         }
-        for(int i=1; i<28; i++){
-          delay(step);
+        for(int i=1; i<14; i++){ // иначе не откалибровать точно
+          display.update_charge();
+          display.update_charge();
+          display.update_charge();
+          delay(18);
           off[0] = buttons.get_button_number();
           if(off[0]==1){
             button = true;
