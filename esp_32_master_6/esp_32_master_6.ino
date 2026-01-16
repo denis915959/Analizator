@@ -27,7 +27,7 @@ const bool led_between_warm = false;; // true - светодиод включа�
 uint32_t led_time = 1800;// 450 // время работы светодиода в секундах
 uint32_t measure_time = 780; // время измерения (без работы светодиода) в секундах. Возможно, потом суммировать с временем работы светодиода?
 
-const int rele_open_time = 10000;//4000  // это время размыкания реле при ошибке 15
+const int rele_open_time = 10;//10000  // это время размыкания реле при ошибке 15
 const int first_warming_time = 10; //10 - все работает; время прогрева перед тестом на ошибку 15
 int loop_counter = 0;
 bool set_zero_flag = true; // если true, то будет использоваться СетЗеро, если false, то не будет 
@@ -43,7 +43,7 @@ int max_loop_iter = measure_time*measure_count + measure_count*led_time; // чи
 bool send_last_message = false; // становится true при прерывании измерения, нужен для отправки сообщения об выключении светодиода и вентилятора на ардуино
 const int delay_between_loop_iter = 10; // задержка между итерациями цикла loop
 const int delay_after_on_off_click = 10; // время задержки после нажатия кнопки старт стоп
-//const int on_off_pin = 25;
+const int iter_to_one_second_in_warm = 93;
 
 // Переменные для CO2
 float ppm_1_medium = 0;
@@ -362,18 +362,11 @@ class Display{
 
 
   void print_charge(int charge){ // часть метода print_battery, выводит только заряд в процентах
-    bool print_space = false;
-    if(charge<100){
-      print_space = true; // печать пробела при заряде меньше 100% 
-    }
     lcd.setCursor(0, 0);
     lcd.print("    "); // очистка строки
     lcd.setCursor(0, 0);
     lcd.print(charge, DEC);
     lcd.print("%");
-    if(print_space){
-      lcd.print(" ");
-    }
   }
 
   void print_battery(int charge){ // печатает заряд в процентах (метод print_charge) и шкалу заряда в скобках
@@ -388,22 +381,19 @@ class Display{
     }
     print_charge(charge); // печать заряда в процентах
     if((first_print)||(change_bat)){ // либо если первая печать, либо если надо поменять индикацию
-      lcd.print(" [");
+      lcd.setCursor(4, 0);
+      lcd.print("[");
       for (int i=0; i<num_indicator; i++){
         lcd.write(::byte(7)); // print("|"); // lcd.write(byte(7));
       }
       for (int i=0; i<(5-num_indicator); i++){
         lcd.print(" "); // print("|"); 
       }
-      lcd.print("] ");
+      lcd.print("]");
       if(first_print){ // вывод символа солнышко
         lcd.setCursor(14, 0);
         lcd.write(::byte(6));
       }
-    }
-    if(charge==9){
-      lcd.setCursor(10, 0); //???
-      lcd.print("  ");
     }
     first_print = false;
   }
@@ -1365,7 +1355,10 @@ void loop() { // данные не пишутся на флешку перед �
     bool first_iteration = true; // флаг нужен, чтобы выводить на экран 1 раз, иначе мерцание возникает
     int counter_for_charge = 0;
     while(!SD.begin()){
-      display.update_charge();////
+      for(int i=0; i<38; i++){
+        display.update_charge();////
+      }
+      
       if(first_iteration == true){
         first_iteration = false;
         display.print_message(3, myArray);
@@ -1433,8 +1426,12 @@ void loop() { // данные не пишутся на флешку перед �
       if(no_print_display==false){
         display.print_message(1, myArray);
       }
-      display.update_charge();
-      delay(first_warming_time*1000);
+      int k = first_warming_time*100;
+      for(int i=0; i<k; i++){
+        display.update_charge();
+        delay(9);
+        delayMicroseconds(250);
+      }
     }
     if(loop_counter == read_between_warm){  // loop_counter
       if(data_1[4]==15){
@@ -1684,7 +1681,7 @@ void loop() { // данные не пишутся на флешку перед �
           // здесь же вызов check_pribor
           myArray[0]=i;
           display.print_message(0, myArray);
-          for(int j=0; j<93; j++){ // 93, а не 100, так как update_charge тратит время на выполнение себя 
+          for(int j=0; j<iter_to_one_second_in_warm; j++){ // 93, а не 100, так как update_charge тратит время на выполнение себя 
             display.update_charge();
             delay(delay_between_loop_iter); //(int)delay_in_command0/100);
           }
@@ -1701,11 +1698,10 @@ void loop() { // данные не пишутся на флешку перед �
         if(off[0]==1){
           button = true;
         }
-        for(int i=1; i<14; i++){ // иначе не откалибровать точно
+        for(int i=1; i<27; i++){ // иначе не откалибровать точно
           display.update_charge();
-          display.update_charge();
-          display.update_charge();
-          delay(18);
+          delay(9);
+          delayMicroseconds(425);
           off[0] = buttons.get_button_number();
           if(off[0]==1){
             button = true;
@@ -1723,16 +1719,20 @@ void loop() { // данные не пишутся на флешку перед �
         for(int i=6; i>=3; i--){
           myArray[0]=i;
           display.print_message(0, myArray);
-          display.update_charge();
-          delay(delay_in_command0); // это сделать константой, это 1 секунда при прогреве!!
+          for(int j=0; j<iter_to_one_second_in_warm; j++){ // 93, а не 100, так как update_charge тратит время на выполнение себя 
+            display.update_charge();
+            delay(delay_between_loop_iter); //(int)delay_in_command0/100);
+          }
         }
       }else if(loop_counter == (read_between_warm + 2)){ // эта задержка в 3 секунды связана с тем, что отправляется команда на автокалибровку
         // тут есть затык примерно в 1 секунду, пока предлагаю так оставить (связано, скорее всего, с отправкой сообщения)
         for(int i=3; i>=0; i--){
           myArray[0]=i;
           display.print_message(0, myArray);
-          display.update_charge();
-          delay(delay_in_command0); // это сделать константой, это 1 секунда при прогреве!!
+          for(int j=0; j<iter_to_one_second_in_warm; j++){ // 93, а не 100, так как update_charge тратит время на выполнение себя 
+            display.update_charge();
+            delay(delay_between_loop_iter); //(int)delay_in_command0/100);
+          }
         }
         do_measure = false;
         do_work = false;
@@ -1744,7 +1744,12 @@ void loop() { // данные не пишутся на флешку перед �
       }
     }
     if((reset == true)&&(loop_counter==0)){ // задержка, равная времени, когнда реле разомкнуто
-      delay(rele_open_time); //время, когда реле разомкнуто
+      int k = rele_open_time*100;
+      for(int i=0; i<k; i++){
+        display.update_charge();
+        delay(9);
+        delayMicroseconds(250);
+      }
     }
     if((reset == true)&&(loop_counter==1)){ // для того, чтобы реле успевало разомкнуться
       delay(1000);
