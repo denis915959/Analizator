@@ -303,17 +303,35 @@ class Charge{ // класс для считывания данных с дели
     return(percents);
   }
 
-  int convert_led_to_percent(float medium){ // добавить сюда нормальную конвертацию!!! сначала просто в % по заряду, потом добавить поправку по яркости
-    return((int)medium);
-    /*float percent_1 = (high_border - low_border)/100;
-    int percents = (int)((medium - low_border)/percent_1);
-    if(percents>100){
-      return(100);
+  int convert_led_to_result(float medium){ // добавить сюда нормальную конвертацию!!! сначала просто в % по заряду, потом добавить поправку по яркости
+    medium = medium-2000;
+    const float x[] = {350, 361, 369, 375, 379.5, 388, 395, 402, 410, 416, 424, 430, 433, 443, 451, 
+                      459, 464, 470, 480, 485, 490, 495, 507, 513, 521, 530, 535, 539, 
+                      545, 550, 556, 562, 569, 577, 581, 594, 600, 608, 615, 622, 630, 
+                      637, 645, 650, 655, 662, 666, 672, 674, 680};
+    
+    const float y[] = {33.8688, 50.803, 65.317, 70.156, 84.671, 94.952, 105.839, 115.515, 127.007, 140.312, 148.779, 156.037, 166.923, 187.486, 206.839, 211.678, 223.773, 242.522, 256.432, 264.294, 272.762, 301.187, 313.283, 328.403, 345.942, 353.199, 362.271, 377.996, 388.882, 404.002, 434.846, 437.871, 448.757, 451.78, 467.505, 472.949, 497.745, 514.075, 529.800, 546.129, 562.458, 581.207, 589.673, 601.769, 615.680, 621.728, 635.638, 638.057, 650.0};
+    
+    const int n = sizeof(x) / sizeof(x[0]);
+    // Проверка граничных значений
+    if (medium <= x[0]) {
+      return ((int)y[0]);  // Нижняя граница
     }
-    if(percents<0){
-      return(0);
+    if (medium >= x[n-1]) {
+      return(650);  //верхняя граница, если (int)y[n-1] - то не работает
     }
-    return(percents);*/
+    
+    // Поиск интервала, в котором находится medium
+    for (int i = 0; i < n - 1; i++) {
+        if (medium >= x[i] && medium <= x[i+1]) {
+            // Линейная интерполяция
+            float y_output = y[i] + (medium - x[i]) * (y[i+1] - y[i]) / (x[i+1] - x[i]);
+            return (int)y_output;  // Преобразование в int
+        }
+    }
+    
+    // Если не нашли интервал (не должно случиться)
+    return (int)y[0];
   }
 };
 
@@ -333,7 +351,7 @@ class Display{
   int max_iter_12 = 100; //200; // количество измерений для усреднения измерения заряда
   int max_iter_led = 25;
   int percent_12 = 100; // заряд в процентах
-  int percent_led = 100; // заряд в процентах  
+  int percent_led = -1; // заряд в процентах  
   Charge charge;
 
   LCD_1602_RUS lcd;//(0x27, 20, 4); // Адрес I2C 0x27, 20x4
@@ -402,7 +420,6 @@ class Display{
     lcd.setCursor(16, 0);
     lcd.print("    ");
     lcd.setCursor(16, 0);
-    led = led - 2000;
     lcd.print(led, DEC);
     lcd.print("%");
   }
@@ -428,7 +445,7 @@ class Display{
     float medium_12 = sum_first_12/k;
     float medium_led = sum_first_led/k;    
     percent_12 = charge.convert_charge_to_percent(medium_12); // сделать глобальной
-    percent_led = charge.convert_led_to_percent(medium_led);
+    percent_led = charge.convert_led_to_result(medium_led);
     print_battery(percent_12);
     print_led(percent_led);
   }
@@ -745,7 +762,7 @@ class Display{
     } 
     if(counter_led==max_iter_led){
       float medium_led = sum_led/max_iter_led;
-      int percent_tmp_led = charge.convert_led_to_percent(medium_led);      
+      int percent_tmp_led = charge.convert_led_to_result(medium_led);      
       if(percent_tmp_led != percent_led){
         percent_led = percent_tmp_led;
         print_led(percent_led);
