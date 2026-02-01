@@ -22,9 +22,10 @@ using std::vector;
 
 char* path = "/data.txt";
 char command = -1;
-const int warming_time = 30; //300; // время прогрева(в секундах)
+const int warming_time = 300; //300; // время прогрева(в секундах)
 const bool led_between_warm = false;; // true - светодиод включается после проверки устройства на весь период прогрева. false - включается сразу после прогрева
 uint32_t led_time = 1800;// 450 // время работы светодиода в секундах
+bool print_percents = false; 
 uint32_t measure_time = 780; // время измерения (без работы светодиода) в секундах. Возможно, потом суммировать с временем работы светодиода?
 
 const int rele_open_time = 10;//10000  // это время размыкания реле при ошибке 15
@@ -259,6 +260,14 @@ class Charge{ // класс для считывания данных с дели
     pinMode(charge_pin_led, INPUT);
   }
 
+  bool get_print_percents_flag(){
+    return(print_percents);
+  }
+
+  bool set_print_percents_flag(bool flag){
+    print_percents = flag;
+  }
+
   int get_delitel_12(){ // вывод данных с делителя 12В, сюда добавить пересчет данных с делителя 12В в зависимости от данных с делителя светодиода
     int charge = analogRead(charge_pin_12); 
     int result = charge;
@@ -334,6 +343,7 @@ class Display{
   bool first_com2_print = true; // первая печать на экран  коианды 2, так как дальше обновляется только количество секунд
   bool first_com11_print = true; // первая печать на экран  коианды 11, так как дальше обновляется только количество секунд
   bool first_com12_print = true; // первая печать на экран  коианды 12, так как дальше обновляется только количество секунд
+  bool first_com13_print = true; // первая печать на экран  коианды 13, так как дальше обновляется только единицы отображения
   bool command_10_flag = false; // для перезагрузки экрана в режиме ожидания
   int counter_12 = 0; // счетчик итераций (надо для отображения заряда)
   int counter_led = 0;
@@ -342,7 +352,8 @@ class Display{
   int max_iter_12 = 100; //200; // количество измерений для усреднения измерения заряда
   int max_iter_led = 25;
   int percent_12 = 100; // заряд в процентах
-  int percent_led = -1; // заряд в процентах  
+  int percent_led = -1; // заряд в процентах
+  bool print_percents;  
   Charge charge;
 
   LCD_1602_RUS lcd;//(0x27, 20, 4); // Адрес I2C 0x27, 20x4
@@ -400,19 +411,31 @@ class Display{
       }
       lcd.print("]");
       if(first_print){ // вывод символа солнышко
-        lcd.setCursor(14, 0);
+        lcd.setCursor(12, 0);
         lcd.write(::byte(6));
       }
     }
     first_print = false;
   }
 
- void print_led(int led){
-    lcd.setCursor(16, 0);
-    lcd.print("    ");
-    lcd.setCursor(16, 0);
+ void print_led(int led){ // добавить второй аргумент - проценты выводить или мкМ
+    lcd.setCursor(14, 0);
+    lcd.print("     ");
+    lcd.setCursor(14, 0);
     lcd.print(led, DEC);
-    lcd.print("%");
+    if(!print_percents){
+      lcd.setCursor(17, 0);
+      lcd.print("mkM");
+    } else{
+      if(led<10){
+        lcd.setCursor(16, 0);
+      } else if(led<100){
+        lcd.setCursor(17, 0);
+      } else{
+        lcd.setCursor(18, 0);
+      }
+      lcd.print("%");
+    }
   }
 
   public:
@@ -423,6 +446,7 @@ class Display{
     lcd.backlight();
     lcd.createChar(7, customBat);
     lcd.createChar(6, customLed);
+    print_percents = charge.get_print_percents_flag();
 
     delay(500);
     int sum_first_12 = 0;
@@ -445,6 +469,11 @@ class Display{
     return(command_10_flag);
   }
 
+  bool set_print_percents_flag(bool flag){
+    print_percents = flag;
+    charge.set_print_percents_flag(flag);
+  }
+
   void print_message(/*int charge, */int num_message, int arr[]){ // печатает сообщения. На вход номер команды и дополнительная информация (в массиве она лекжит). Некоторые команды (0 и 2) умные и обновляют только секунды, чтобы остальное изображение не мерцало
     if(num_message!=0){
       first_com0_print = true;
@@ -458,7 +487,10 @@ class Display{
     if(num_message!=12){
       first_com12_print = true;
     }
-    if((first_com0_print)&&(first_com2_print)&&(first_com11_print)&&(first_com12_print)){ // если одна из этих 2 команд уже на экране, то не надо очищать экран
+    if(num_message!=13){
+      first_com13_print = true;
+    }
+    if((first_com0_print)&&(first_com2_print)&&(first_com11_print)&&(first_com12_print)&&(first_com13_print)){ // если одна из этих 2 команд уже на экране, то не надо очищать экран
       lcd.clear();
     }
     first_print = true;
@@ -715,11 +747,32 @@ class Display{
       }
       first_com12_print = false;
     break;
-    case 13: // ВЫХОД
+    case 13: // Отображения яркости в
+      if(first_com13_print){
+        lcd.setCursor(0, 2);
+        lcd.print("OTOБPAЖEHИE ЯPKOCTИ");
+      }
+      if(arr[0]==0){
+        lcd.setCursor(0, 3);
+        lcd.print("    B MИKPOMOЛЯX");
+      }
+      if(arr[0]>=1){
+        lcd.setCursor(0, 3);
+        lcd.print("                   ");
+        lcd.setCursor(0, 3);
+        lcd.print("    B %");
+      }
+      if(arr[0]<0){
+        lcd.setCursor(0, 3);
+        lcd.print("                  ");
+      }
+      first_com13_print = false;
+    break;
+    case 14: // ВЫХОД
       lcd.setCursor(0, 2);
       lcd.print("       BЫXOД");
     break;
-    case 14: // низкий заряд аккумулятора, нельзя начать новое измерение
+    case 15: // низкий заряд аккумулятора, нельзя начать новое измерение
       lcd.setCursor(0, 1);
       lcd.print("HEЛb3Я HAЧATb И3ME-");
       lcd.setCursor(0, 2);
@@ -808,7 +861,7 @@ class Kuler{ // класс для работы с вентилятором ох�
     }
     return(res);
   }
-};
+}; 
 
 
 class Buttons{ // класс для работы с кнопками
@@ -1015,13 +1068,14 @@ class Settings{ // класс для работы с настройками
   const int ok_click_time = 1500; // время, которое надо зажимать кнопку ok, чтобы войти в настройки
   int ok_num = -1;
   int delay_after_on_off_click = 0;
-  static const int parametr_n = 2; // количество параметров (без выхода)
+  static const int parametr_n = 3; // количество параметров (без выхода)
   const int n_delay = 4; // на сколько делить базовый интервал задержки после срабатывания кнопки
   Display& display; // сейчас обьект передается просто по ссылке. возможно, сделать unique ptr
   Buttons& buttons;
   Parametr parametr[parametr_n];
   uint32_t measure_time = 1;
   uint32_t led_time = 1; //в конструкторе сделать чтение из глобальной памяти
+  uint32_t print_percents = 1;
   public:
   Settings(int delay_between_loop_iter_, int delay_after_on_off_click_, Display& display_, Buttons& buttons_):display(display_), buttons(buttons_){ //инициализируем ссылку
     delay_between_loop_iter = delay_between_loop_iter_; 
@@ -1038,8 +1092,13 @@ class Settings{ // класс для работы с настройками
     parametr[1].high_border = 180;
     parametr[1].number = read_measure_num();
     parametr[1].k = 10;
+    parametr[2].low_border = 0; // измерение
+    parametr[2].high_border = 1;
+    parametr[2].number = read_print_percents_flag();
+    parametr[2].k = 1;
     led_time = read_led_time();
     measure_time = read_measure_time();
+    print_percents = read_print_percents_flag();
   }  
 
   bool check_input_settings(){
@@ -1058,13 +1117,7 @@ class Settings{ // класс для работы с настройками
       bool choice_paramter = false; // если пользователь выбрал параметр, то true, если снова вернулся в выбор параметров - false
       while(true){
         display.update_charge();
-        // здесь чтение данных с кнопок
-        /*int ok = digitalRead(ok_pin);
-        int left = digitalRead(left_pin);
-        int right = digitalRead(right_pin);    
-        int down = digitalRead(down_pin);
-        int up = digitalRead(up_pin);*/ // удалить потом
-        int button_num = buttons.get_button_number();
+        int button_num = buttons.get_button_number(); // здесь чтение данных с кнопок
         if(choice_paramter == false){
           if(button_num == 4){// правая кнопка нажата
             parametr_number++;
@@ -1124,12 +1177,14 @@ class Settings{ // класс для работы с настройками
     }
     led_time = read_led_time();
     measure_time = read_measure_time();
+    print_percents = read_print_percents_flag();
   }
 
   void save_parametrs(uint32_t led, uint32_t measure) { // Функция для сохранения двух переменных типа char
     preferences.begin("appChars", false);
     preferences.putUInt("led_number", led);
     preferences.putUInt("measure_number", measure);
+    preferences.putUInt("print_percents_flag", print_percents);
     preferences.end();
   }
 
@@ -1145,6 +1200,13 @@ class Settings{ // класс для работы с настройками
     preferences.begin("appChars", true);
     uint32_t tmp = preferences.getUInt("measure_number", 0);
     uint32_t res = tmp*parametr[1].k;
+    preferences.end();
+    return res;
+  }
+
+  uint32_t read_print_percents_flag() {
+    preferences.begin("appChars", true);
+    uint32_t res = preferences.getUInt("print_percents_flag", 0);
     preferences.end();
     return res;
   }
@@ -1302,10 +1364,22 @@ int common[7];
 Display display; // конструктор не принимает параметров, значит скобки не нужны
 Buttons buttons;
 Kuler kuler;
+Settings settings(delay_between_loop_iter, delay_after_on_off_click, display, buttons);
 void setup() {
   //pinMode(on_off_pin, INPUT);
   display.begin(); 
   kuler.begin();
+  uint32_t print_percents_int = settings.read_print_percents_flag();
+  bool print_percents_tmp;
+  if(print_percents_int==0){
+    print_percents_tmp = false;
+  } else{
+    print_percents_tmp = true;
+  }
+  if(print_percents_tmp!=print_percents){
+    print_percents = print_percents_tmp;
+    display.set_print_percents_flag(print_percents);
+  }
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Wire.begin();
@@ -1320,7 +1394,6 @@ void setup() {
 }
 }
 
-Settings settings(delay_between_loop_iter, delay_after_on_off_click, display, buttons);
 int data_1[5];
 int data_2[5];
 
@@ -1342,6 +1415,17 @@ void loop() { // данные не пишутся на флешку перед �
   int reboot_display_counter = 0;
   settings.input_settings(); // флаг добавить?
   led_time = settings.read_led_time();
+  uint32_t print_percents_int = settings.read_print_percents_flag();
+  bool print_percents_tmp;
+  if(print_percents_int==0){
+    print_percents_tmp = false;
+  } else{
+    print_percents_tmp = true;
+  }
+  if(print_percents_tmp!=print_percents){
+    print_percents = print_percents_tmp;
+    display.set_print_percents_flag(print_percents);
+  }
   measure_time = settings.read_measure_time();
   display.update_charge();
   if(first_loop){
@@ -1355,7 +1439,7 @@ void loop() { // данные не пишутся на флешку перед �
   max_loop_iter = measure_time*measure_count + measure_count*led_time;
   if((on==1)&&(warm_completed)&&(display.get_percents()==0)) {
     if(low_percent_message==false){
-      display.print_message(14, myArray);
+      display.print_message(15, myArray);
     }
     low_percent_message = true;
   } else if((on==1)&&(warm_completed)){ // 1
