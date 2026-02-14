@@ -87,6 +87,13 @@ char sensor_rele = 0;
 char led_rele = 0; // 0 - не инициализировано, 1 - выключено, 2 - включено
 char kuler_rele = 0; // 0 - не инициализировано, 1 - выключено, 2 - включено
 
+enum Status {
+  WARMING,
+  WAITING,
+  NO_SD,
+  MEASURE,
+  CHECK
+};
 
 #include <iostream> //библиотеки
 #include <fstream>
@@ -879,6 +886,8 @@ class Buttons{ // класс для работы с кнопками
   const int queue_delay = 50; // в мс
   const unsigned long LONG_PRESS_TIME = 1500;  // 1.5 секунды
   const unsigned long LONG_UP_PRESS_TIME = 270; //возможно, сделать 250
+  bool read_from_ok_flag = false; // разрешение на чтение данных с кнопки ок 
+  bool read_from_other_flag = false; // разрешение на чтение данных с остальных кнопок
 
   static void buttonReaderStatic(void* pv) {
     Buttons* instance = static_cast<Buttons*>(pv);
@@ -1040,6 +1049,26 @@ class Buttons{ // класс для работы с кнопками
       return;
     }
     xTaskCreate(buttonReaderStatic, "btn", 2048, this, 2, NULL);
+  }
+
+  void set_status(Status status) {
+    switch(status) {
+      case WARMING:
+        Serial.println("Status: WARMING");
+        break;
+      case WAITING:
+        Serial.println("Status: WAITING");
+        break;
+      case NO_SD:
+        Serial.println("Status: NO_SD");
+        break;
+      case MEASURE:
+        Serial.println("Status: MEASURE");
+        break;
+      case CHECK:
+        Serial.println("Status: CHECK");
+        break;
+    }
   }
 
   int get_button_number(){
