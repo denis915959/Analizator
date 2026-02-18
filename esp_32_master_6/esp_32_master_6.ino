@@ -22,7 +22,7 @@ using std::vector;
 
 char* path = "/data.txt";
 char command = -1;
-const int warming_time = 300; //300; // время прогрева(в секундах)
+const int warming_time = 30; //300; // время прогрева(в секундах)
 const bool led_between_warm = false;; // true - светодиод включается после проверки устройства на весь период прогрева. false - включается сразу после прогрева
 uint32_t led_time = 1800;// 450 // время работы светодиода в секундах
 bool print_percents = false; 
@@ -92,7 +92,7 @@ enum Status {
   WAITING,
   NO_SD,
   MEASURE,
-  CHECK
+  ERROR
 };
 
 #include <iostream> //библиотеки
@@ -271,7 +271,7 @@ class Charge{ // класс для считывания данных с дели
     return(print_percents);
   }
 
-  bool set_print_percents_flag(bool flag){
+  void set_print_percents_flag(bool flag){
     print_percents = flag;
   }
 
@@ -360,7 +360,7 @@ class Display{
   int max_iter_led = 25;
   int percent_12 = 100; // заряд в процентах
   int percent_led = -1; // заряд в процентах
-  bool print_percents;  
+  bool print_percents=false;  
   Charge charge;
 
   LCD_1602_RUS lcd;//(0x27, 20, 4); // Адрес I2C 0x27, 20x4
@@ -426,6 +426,7 @@ class Display{
   }
 
  void print_led(int led){ // добавить второй аргумент - проценты выводить или мкМ
+    Serial.println("k1");
     lcd.setCursor(14, 0);
     lcd.print("     ");
     lcd.setCursor(14, 0);
@@ -441,7 +442,7 @@ class Display{
       } else{
         lcd.setCursor(18, 0);
       }
-      lcd.print("%");
+      lcd.print("% ");
     }
   }
 
@@ -479,6 +480,8 @@ class Display{
   bool set_print_percents_flag(bool flag){
     print_percents = flag;
     charge.set_print_percents_flag(flag);
+    percent_led = 71;//convert_led_to_result(medium);// medium надо высчитывать каждый раз заново. возможно, сделать medium полем класса
+    print_led(percent_led);
   }
 
   void print_message(/*int charge, */int num_message, int arr[]){ // печатает сообщения. На вход номер команды и дополнительная информация (в массиве она лекжит). Некоторые команды (0 и 2) умные и обновляют только секунды, чтобы остальное изображение не мерцало
@@ -787,6 +790,12 @@ class Display{
       lcd.setCursor(0, 3);
       lcd.print("PA3PЯЖEH");
     break;
+    case 16: // ПРОВЕРЬТЕ ПОТЕНЦИОМЕТР
+      lcd.setCursor(0, 1);
+      lcd.print("ПPOBEPbTE ПOTEHЦИO-");
+      lcd.setCursor(0, 2);
+      lcd.print("METP");
+    break;
     /*case 11: // ДЛЯ НАЧАЛА ИЗМЕРЕНИЯ НАЖМИТЕ СТАРТ 
       lcd.setCursor(0, 1);
       lcd.print("ДЛЯ BXOДA B");
@@ -911,128 +920,140 @@ class Buttons{ // класс для работы с кнопками
     
     while(1) { // этот цикл будет длиться до конца выполнения программы
         current_time = millis(); // текущее время
-        // Кнопка 1
-        int b1 = digitalRead(on_off_pin);
-        if((b1 == 1)&&(b1_prev == 0)) { // если кнопка нажата
-          vTaskDelay(queue_delay / portTICK_PERIOD_MS);
-          b1 = digitalRead(on_off_pin);
-          if((b1 == 1)&&(b1_prev == 0)){
-            uint8_t data = 1; // 1, если кнопка 1 нажата
-            xQueueSend(q, &data, 0);
-          }
-        }
-        b1_prev = b1; 
-        // Кнопка 2
-        int b2 = digitalRead(ok_pin);
-        if((b2 == 1)&&(b2_prev == 1)) { // проверка длинного нажатия
-          if(ok_pressed && press_start_time > 0) {
-            if((current_time - press_start_time) >= LONG_PRESS_TIME) {
-              uint8_t data = 7; // 7 - если кнопка ok была долго нажата
-              xQueueSend(longPressQueue, &data, 0);
-              press_start_time = 0; // Сбрасываем таймер, чтобы не отправлять повторно
-              ok_pressed = false;
-            }
-          }
-        }
-        if((b2 == 1)&&(b2_prev == 0)) { // если кнопка нажата
-          vTaskDelay(queue_delay / portTICK_PERIOD_MS);
-          b2 = digitalRead(ok_pin);
-          if((b2 == 1)&&(b2_prev == 0)){
-            uint8_t data = 2; // 2, если кнопка 2 нажата
-            xQueueSend(q, &data, 0);
-            press_start_time = current_time; // Начало отсчета длинного нажатия
-            ok_pressed = true;
-          }
-          if(b2 == 0){  // Если кнопка отпущена
-            if(ok_pressed) {
-              ok_pressed = false;
-              press_start_time = 0;
-            }
-          }
-        }
-        b2_prev = b2;
-        // Кнопка 3
-        int b3 = digitalRead(left_pin);
-        if((b3 == 1)&&(b3_prev == 0)) { // если кнопка нажата
-          vTaskDelay(queue_delay / portTICK_PERIOD_MS);
-          b3 = digitalRead(left_pin);
-          if((b3 == 1)&&(b3_prev == 0)){
-            uint8_t data = 3; // 3, если кнопка 3 нажата
-            xQueueSend(q, &data, 0);
-          }
-        }
-        b3_prev = b3; 
-        // Кнопка 4
-        int b4 = digitalRead(right_pin);
-        if((b4 == 1)&&(b4_prev == 0)) { // если кнопка нажата
-          vTaskDelay(queue_delay / portTICK_PERIOD_MS);
-          b4 = digitalRead(right_pin);
-          if((b4 == 1)&&(b4_prev == 0)){
-            uint8_t data = 4; // 4, если кнопка 4 нажата
-            xQueueSend(q, &data, 0);
-          }
-        }
-        b4_prev = b4; 
-        // Кнопка 5
-        int b5 = digitalRead(up_pin);
-        if((b5 == 1)&&(b5_prev == 1)) { // проверка длинного нажатия
-          if(up_pressed && press_up_start_time > 0) {
-            if((current_time - press_up_start_time) >= LONG_UP_PRESS_TIME) {
-              uint8_t data = 5;
+        if(read_from_other_flag){  
+          // Кнопка 1    
+          int b1 = digitalRead(on_off_pin);
+          if((b1 == 1)&&(b1_prev == 0)) { // если кнопка нажата
+            vTaskDelay(queue_delay / portTICK_PERIOD_MS);
+            b1 = digitalRead(on_off_pin);
+            if((b1 == 1)&&(b1_prev == 0)){
+              uint8_t data = 1; // 1, если кнопка 1 нажата
               xQueueSend(q, &data, 0);
-              press_up_start_time = current_time; // Сбрасываем таймер, чтобы при долгом нажатии можно было снова считать
+            }
+          }
+          b1_prev = b1; 
+        }
+        if(read_from_ok_flag){
+          // Кнопка 2
+          int b2 = digitalRead(ok_pin);
+          if((b2 == 1)&&(b2_prev == 1)) { // проверка длинного нажатия
+            if(ok_pressed && press_start_time > 0) {
+              if((current_time - press_start_time) >= LONG_PRESS_TIME) {
+                uint8_t data = 7; // 7 - если кнопка ok была долго нажата
+                xQueueSend(longPressQueue, &data, 0);
+                press_start_time = 0; // Сбрасываем таймер, чтобы не отправлять повторно
+                ok_pressed = false;
+              }
+            }
+          }
+          if((b2 == 1)&&(b2_prev == 0)) { // если кнопка ok нажата
+            vTaskDelay(queue_delay / portTICK_PERIOD_MS);
+            b2 = digitalRead(ok_pin);
+            if((b2 == 1)&&(b2_prev == 0)){
+              uint8_t data = 2; // 2, если кнопка 2 нажата
+              xQueueSend(q, &data, 0);
+              press_start_time = current_time; // Начало отсчета длинного нажатия
+              ok_pressed = true;
+            }
+            if(b2 == 0){  // Если кнопка отпущена
+              if(ok_pressed) {
+                ok_pressed = false;
+                press_start_time = 0;
+              }
+            }
+          }
+          b2_prev = b2;
+        }
+        if(read_from_other_flag){
+          // Кнопка 3
+          int b3 = digitalRead(left_pin);
+          if((b3 == 1)&&(b3_prev == 0)) { // если кнопка left нажата
+            vTaskDelay(queue_delay / portTICK_PERIOD_MS);
+            b3 = digitalRead(left_pin);
+            if((b3 == 1)&&(b3_prev == 0)){
+              uint8_t data = 3; // 3, если кнопка 3 нажата
+              xQueueSend(q, &data, 0);
+            }
+          }
+          b3_prev = b3; 
+        }
+        if(read_from_other_flag){
+          // Кнопка 4
+          int b4 = digitalRead(right_pin);
+          if((b4 == 1)&&(b4_prev == 0)) { // если кнопка right нажата
+            vTaskDelay(queue_delay / portTICK_PERIOD_MS);
+            b4 = digitalRead(right_pin);
+            if((b4 == 1)&&(b4_prev == 0)){
+              uint8_t data = 4; // 4, если кнопка 4 нажата
+              xQueueSend(q, &data, 0);
+            }
+          }
+          b4_prev = b4; 
+        }
+        if(read_from_other_flag){
+          // Кнопка 5
+          int b5 = digitalRead(up_pin);
+          if((b5 == 1)&&(b5_prev == 1)) { // проверка длинного нажатия
+            if(up_pressed && press_up_start_time > 0) {
+              if((current_time - press_up_start_time) >= LONG_UP_PRESS_TIME) {
+                uint8_t data = 5;
+                xQueueSend(q, &data, 0);
+                press_up_start_time = current_time; // Сбрасываем таймер, чтобы при долгом нажатии можно было снова считать
+                up_pressed = true;
+              }
+            }
+          }
+          if((b5 == 1)&&(b5_prev == 0)) { // если кнопка up нажата
+            vTaskDelay(queue_delay / portTICK_PERIOD_MS);
+            b5 = digitalRead(up_pin);
+            if((b5 == 1)&&(b5_prev == 0)){
+              uint8_t data = 5; // 5, если кнопка 5 нажата
+              xQueueSend(q, &data, 0);
+              press_up_start_time = current_time; // Начало отсчета возможного длинного нажатия
               up_pressed = true;
             }
           }
-        }
-        if((b5 == 1)&&(b5_prev == 0)) { // если кнопка нажата
-          vTaskDelay(queue_delay / portTICK_PERIOD_MS);
-          b5 = digitalRead(up_pin);
-          if((b5 == 1)&&(b5_prev == 0)){
-            uint8_t data = 5; // 5, если кнопка 5 нажата
-            xQueueSend(q, &data, 0);
-            press_up_start_time = current_time; // Начало отсчета возможного длинного нажатия
-            up_pressed = true;
+          if(b5 == 0){  // Если кнопка up отпущена
+            if(up_pressed) {
+              up_pressed = false;
+              press_up_start_time = 0;
+            }
           }
+          b5_prev = b5;
         }
-        if(b5 == 0){  // Если кнопка отпущена
-          if(up_pressed) {
-            up_pressed = false;
-            press_up_start_time = 0;
+        if(read_from_other_flag){
+          // Кнопка 6
+          int b6 = digitalRead(down_pin);
+          if((b6 == 1)&&(b6_prev == 1)) { // проверка длинного нажатия
+            if(down_pressed && press_down_start_time > 0) {
+              if((current_time - press_down_start_time) >= LONG_UP_PRESS_TIME) {
+                uint8_t data = 6;
+                xQueueSend(q, &data, 0);
+                press_down_start_time = current_time; // Сбрасываем таймер, чтобы при долгом нажатии можно было снова считать
+                down_pressed = true;
+              }
+            }
           }
-        }
-        b5_prev = b5;
-        // Кнопка 6
-        int b6 = digitalRead(down_pin);
-        if((b6 == 1)&&(b6_prev == 1)) { // проверка длинного нажатия
-          if(down_pressed && press_down_start_time > 0) {
-            if((current_time - press_down_start_time) >= LONG_UP_PRESS_TIME) {
-              uint8_t data = 6;
+          if((b6 == 1)&&(b6_prev == 0)) { // если кнопка down нажата
+            vTaskDelay(queue_delay / portTICK_PERIOD_MS);
+            b6 = digitalRead(down_pin);
+            if((b6 == 1)&&(b6_prev == 0)){
+              uint8_t data = 6; // 5, если кнопка 5 нажата
               xQueueSend(q, &data, 0);
-              press_down_start_time = current_time; // Сбрасываем таймер, чтобы при долгом нажатии можно было снова считать
+              press_down_start_time = current_time; // Начало отсчета возможного длинного нажатия
               down_pressed = true;
             }
           }
-        }
-        if((b6 == 1)&&(b6_prev == 0)) { // если кнопка нажата
-          vTaskDelay(queue_delay / portTICK_PERIOD_MS);
-          b6 = digitalRead(down_pin);
-          if((b6 == 1)&&(b6_prev == 0)){
-            uint8_t data = 6; // 5, если кнопка 5 нажата
-            xQueueSend(q, &data, 0);
-            press_down_start_time = current_time; // Начало отсчета возможного длинного нажатия
-            down_pressed = true;
+          if(b6 == 0){  // Если кнопка down отпущена
+            if(down_pressed) {
+              down_pressed = false;
+              press_down_start_time = 0;
+            }
           }
+          b6_prev = b6; 
         }
-        if(b6 == 0){  // Если кнопка отпущена
-          if(down_pressed) {
-            down_pressed = false;
-            press_down_start_time = 0;
-          }
-        }
-        b6_prev = b6; 
         vTaskDelay(5 / portTICK_PERIOD_MS); //10 Приостанавливает выполнение текущей задачи на 10 миллисекунд. portTICK_PERIOD_MS - перевод "тиков" в мс
-    }
+      }
   }
   public:
   Buttons(){
@@ -1053,20 +1074,25 @@ class Buttons{ // класс для работы с кнопками
 
   void set_status(Status status) {
     switch(status) {
-      case WARMING:
-        Serial.println("Status: WARMING");
+      case WARMING: // оба false
+        read_from_ok_flag = false; 
+        read_from_other_flag = false;
         break;
-      case WAITING:
-        Serial.println("Status: WAITING");
+      case WAITING: // оба флага true
+        read_from_ok_flag = true; 
+        read_from_other_flag = true;
         break;
       case NO_SD:
-        Serial.println("Status: NO_SD");
+        read_from_ok_flag = false; 
+        read_from_other_flag = true;
         break;
-      case MEASURE:
-        Serial.println("Status: MEASURE");
+      case MEASURE: // все кнопки - true, ok - false
+        read_from_ok_flag = false; 
+        read_from_other_flag = true;
         break;
-      case CHECK:
-        Serial.println("Status: CHECK");
+      case ERROR: // оба флага false
+        read_from_ok_flag = false; 
+        read_from_other_flag = false;
         break;
     }
   }
@@ -1152,24 +1178,20 @@ class Settings{ // класс для работы с настройками
             parametr_number++;
             parametr_number = parametr_number%(parametr_n + 1);
             display.print_message((11+parametr_number), myArray);
-            //delay((int)(delay_after_on_off_click/n_delay));
           }else if(button_num == 3){// левая кнопка нажата
             parametr_number--;
             if(parametr_number == -1){
-              parametr_number = 2;
+              parametr_number = parametr_n;
             }
             display.print_message((11+parametr_number), myArray);
-            //delay((int)(delay_after_on_off_click/n_delay));
           }else if(button_num == 2){ // кнопка ok нажата
             if(parametr_number == parametr_n){
-              save_parametrs(parametr[0].number, parametr[1].number);
+              save_parametrs(parametr[0].number, parametr[1].number, parametr[2].number);
               display.print_message(10, myArray);// вывод на экран сообщения 10
-              //delay(delay_after_on_off_click);
               break;
             } else{
               myArray[0] = parametr[parametr_number].number*parametr[parametr_number].k;
               display.print_message((11+parametr_number), myArray);
-              //delay((int)(delay_after_on_off_click/n_delay));
             }
             choice_paramter = true;
           }
@@ -1178,27 +1200,28 @@ class Settings{ // класс для работы с настройками
             choice_paramter = false;
             myArray[0] = -1;
             display.print_message((11+parametr_number), myArray); 
-            //delay((int)(delay_after_on_off_click/n_delay));
           } else if(button_num==5){
             uint32_t tmp = parametr[parametr_number].number;
             tmp++;
-            if(tmp > parametr[parametr_number].high_border){
+            if((tmp > parametr[parametr_number].high_border)&&(parametr_number!=2)){
               tmp--;
+            } else if((tmp > parametr[parametr_number].high_border)&&(parametr_number==2)){
+              tmp = parametr[parametr_number].low_border;
             }
             parametr[parametr_number].number = tmp;
             myArray[0] = parametr[parametr_number].number*parametr[parametr_number].k;
-            display.print_message((11+parametr_number), myArray); 
-            //delay((int)(delay_after_on_off_click/(n_delay))); // возможно, 
+            display.print_message((11+parametr_number), myArray);  
           } else if(button_num == 6){
-            uint32_t tmp = parametr[parametr_number].number;
+            int tmp = parametr[parametr_number].number;
             tmp--;
-            if(tmp < parametr[parametr_number].low_border){
+            if((tmp < parametr[parametr_number].low_border)&&(parametr_number!=2)){
               tmp++;
+            } else if((tmp < parametr[parametr_number].low_border)&&(parametr_number==2)){
+              tmp = parametr[parametr_number].high_border;
             }
-            parametr[parametr_number].number = tmp;
+            parametr[parametr_number].number = (uint32_t)tmp;
             myArray[0] = parametr[parametr_number].number*parametr[parametr_number].k;
-            display.print_message((11+parametr_number), myArray); 
-            //delay((int)(delay_after_on_off_click/(n_delay)));              
+            display.print_message((11+parametr_number), myArray);              
           }
         }
         delay(delay_between_loop_iter);
@@ -1209,11 +1232,11 @@ class Settings{ // класс для работы с настройками
     print_percents = read_print_percents_flag();
   }
 
-  void save_parametrs(uint32_t led, uint32_t measure) { // Функция для сохранения двух переменных типа char
+  void save_parametrs(uint32_t led, uint32_t measure, uint32_t print_percents) { // Функция для сохранения двух переменных типа char
     preferences.begin("appChars", false);
     preferences.putUInt("led_number", led);
     preferences.putUInt("measure_number", measure);
-    preferences.putUInt("print_percents_flag", print_percents);
+    preferences.putUInt("print_percents", print_percents); // //print_percents_fla - слишком длинное, print_percents - все работает нормально
     preferences.end();
   }
 
@@ -1235,7 +1258,8 @@ class Settings{ // класс для работы с настройками
 
   uint32_t read_print_percents_flag() {
     preferences.begin("appChars", true);
-    uint32_t res = preferences.getUInt("print_percents_flag", 0);
+    uint32_t res = preferences.getUInt("print_percents", 0); //print_percents_fla - слишком длинное, print_percents - все работает нормально
+    //uint32_t res = tmp*1; //parametr[2].k;
     preferences.end();
     return res;
   }
@@ -1395,7 +1419,6 @@ Buttons buttons;
 Kuler kuler;
 Settings settings(delay_between_loop_iter, delay_after_on_off_click, display, buttons);
 void setup() {
-  //pinMode(on_off_pin, INPUT);
   display.begin(); 
   kuler.begin();
   uint32_t print_percents_int = settings.read_print_percents_flag();
@@ -1451,6 +1474,7 @@ void loop() { // данные не пишутся на флешку перед �
   } else{
     print_percents_tmp = true;
   }
+  Serial.println();
   if(print_percents_tmp!=print_percents){
     print_percents = print_percents_tmp;
     display.set_print_percents_flag(print_percents);
@@ -1469,6 +1493,7 @@ void loop() { // данные не пишутся на флешку перед �
   if((on==1)&&(warm_completed)&&(display.get_percents()==0)) {
     if(low_percent_message==false){
       display.print_message(15, myArray);
+      buttons.set_status(ERROR);
     }
     low_percent_message = true;
   } else if((on==1)&&(warm_completed)){ // 1
@@ -1482,6 +1507,7 @@ void loop() { // данные не пишутся на флешку перед �
       
       if(first_iteration == true){
         first_iteration = false;
+        buttons.set_status(NO_SD);
         display.print_message(3, myArray);
       }
       stop = buttons.get_button_number();
@@ -1492,6 +1518,7 @@ void loop() { // данные не пишутся на флешку перед �
     }
     if(stop!=1){
       do_measure = true;
+      buttons.set_status(MEASURE);
       do_work = true;
       appendFile(SD, path, "CO2_1;CO2_2;CO2_medium;Temp_1;Temp_2;Temp_medium;Accuracy_1;Accuracy_2;Min_CO2_1;Min_CO2_2; time"/*"CO2_1;CO2_2;CO2_3;CO2_medium;Temp_1;Temp_2;Temp_3;Temp_medium;Accuracy_1;Accuracy_2;Accuracy_3;Min_CO2_1;Min_CO2_2;Min_CO2_3; time"*/, true);
       delay(100);  // 500
@@ -1707,6 +1734,7 @@ void loop() { // данные не пишутся на флешку перед �
     //конец блока, который надо бы в класс засунуть
 
     if(send_last_message == true){
+      buttons.set_status(WAITING);
       do_measure = false;
       do_work = false;
       stop_flag = true;
@@ -1797,7 +1825,8 @@ void loop() { // данные не пишутся на флешку перед �
     } 
 
     Serial.println();
-    if(loop_counter == read_between_warm){
+    if(loop_counter == read_between_warm){ // начало прогрева
+      buttons.set_status(WARMING);
       for(int i=warming_time; i>=7; i--){
           // здесь же вызов check_pribor
           myArray[0]=i;
@@ -1831,6 +1860,7 @@ void loop() { // данные не пишутся на флешку перед �
       }
       if((local_loop_counter>=measure_count*1)&&(button==true/*(off[0]==1)||(off[1]==1)||(off[2]==1)||(off[3]==1)||(off[4]==1)||(off[5]==1)||(off[6]==1)*/)){ // local_loop_counter>=9 сделано для того, чтобы первые 3 секунды кнопка не считывалась, это надо, чтобы не было такого, что нажал кнопку старт и тут же все остановилдось 
         send_last_message = true;
+        //buttons.set_status(WAITING);
         led_rele = 1; // 0 - не инициализировано, 1 - выключено, 2 - включено
         kuler_rele = 1; // 0 - не инициализировано, 1 - выключено, 2 - включено
       }
@@ -1856,6 +1886,7 @@ void loop() { // данные не пишутся на флешку перед �
           }
         }
         do_measure = false;
+        buttons.set_status(WAITING);
         do_work = false;
         warm_completed = true; 
         display.print_message(10, myArray);
@@ -1885,6 +1916,7 @@ void loop() { // данные не пишутся на флешку перед �
     }
     if((local_loop_counter == max_loop_iter)){
       do_measure=false;
+      buttons.set_status(WAITING);
       do_work = false;
       display.print_message(10, myArray);
       SD.end();
