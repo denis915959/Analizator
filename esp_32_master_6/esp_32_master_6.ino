@@ -443,6 +443,9 @@ class Display{
         lcd.setCursor(18, 0);
       }
       lcd.print("% ");
+      if(led<100){ // это надо, так как иначе будет АЖМИТЕ, а не НАЖМИТЕ
+        lcd.print(" ");
+      }
     }
   }
 
