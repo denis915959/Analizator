@@ -22,7 +22,7 @@ using std::vector;
 
 char* path = "/data.txt";
 char command = -1;
-const int warming_time = 30; //300; // время прогрева(в секундах)
+const int warming_time = 300; //300; // время прогрева(в секундах)
 const bool led_between_warm = false;; // true - светодиод включается после проверки устройства на весь период прогрева. false - включается сразу после прогрева
 uint32_t led_time = 1800;// 450 // время работы светодиода в секундах
 bool print_percents = false; 
@@ -242,6 +242,8 @@ class Charge{ // класс для считывания данных с дели
     int high_border = 2050; //3075;  //верхняя граница (ее надо увеличить после подключения светодиода)
     const int num_iter_led = 10; // число итераций для усреднения при чтении с делителя светодиода
     bool print_percents = false;
+    int delta_percents = 2;
+    int delta_mkm = 5; //6
     // ниже 30% падение замедляется, я бы напряжение, соответствующее 30%, приравнял к 40%. то есть не линейная зависимость, а с изломом
     //float volt_1 = (high_border - low_border)/100; // 3.9
     /*static const int tableSize = 6; // static const позволяет использовать значение на этапе компиляции
@@ -265,6 +267,14 @@ class Charge{ // класс для считывания данных с дели
   Charge(){
     pinMode(charge_pin_12, INPUT);
     pinMode(charge_pin_led, INPUT);
+  }
+
+  int get_delta(){
+    if(print_percents){
+      return(delta_percents);
+    }else{
+      return(delta_mkm);
+    }
   }
 
   bool get_print_percents_flag(){
@@ -355,12 +365,18 @@ class Display{
   int counter_12 = 0; // счетчик итераций (надо для отображения заряда)
   int counter_led = 0;
   int sum_charge_12 = 0; // сумма показаний с делителя напряжения на 12V в цикле loop
-  int sum_led = 0; // сумма показаний с делителя напряжения от светодиода в цикле loop
+  unsigned long int sum_led = 0; // сумма показаний с делителя напряжения от светодиода в цикле loop
+  int sum_led_block = 0; 
   int max_iter_12 = 100; //200; // количество измерений для усреднения измерения заряда
-  int max_iter_led = 25;
+  int max_iter_block_led = 15;//25;
+  int max_iter_led = max_iter_block_led*200; // 200
   int percent_12 = 100; // заряд в процентах
   int percent_led = -1; // заряд в процентах
-  bool print_percents=false;  
+  bool print_percents=false; 
+  int medium_led_now = 0;
+  int medium_led_old = 0; 
+  int counter_print_led_after_change_brightness = 0; // для печати 2-х блоков после окончания изменения светодиода
+  int led_now_print=0; // значение, которое в данный момент выведено на экран
   Charge charge;
 
   LCD_1602_RUS lcd;//(0x27, 20, 4); // Адрес I2C 0x27, 20x4
@@ -426,7 +442,7 @@ class Display{
   }
 
  void print_led(int led){ // добавить второй аргумент - проценты выводить или мкМ
-    Serial.println("k1");
+    led_now_print = led;
     lcd.setCursor(14, 0);
     lcd.print("     ");
     lcd.setCursor(14, 0);
@@ -536,6 +552,9 @@ class Display{
         lcd.setCursor(0, 3);
         lcd.print("Ч"); // rus
         lcd.print("EPE3 ");
+        /*lcd.print("WARMING COMPLETED");
+        lcd.setCursor(0, 2);
+        lcd.print("AFTER ");*/
         lcd.print(arr[0], DEC);
         lcd.print(" CEK");
       } else{
@@ -568,6 +587,7 @@ class Display{
       lcd.print("POBEPKA YCTPO");
       lcd.print("Й");
       lcd.print("CTBA");
+      //lcd.print("CHECKING THE DEVICE");
     break;
     case 2: // измерение: 
       if(first_com2_print){
@@ -576,6 +596,7 @@ class Display{
         lcd.print("3MEPEH");
         lcd.print("И"); // rus
         lcd.print("E: ");
+        //lcd.print("MEASURING: ");
         lcd.print(arr[0], DEC);
         lcd.print(" CEK");
       } else{
@@ -727,6 +748,9 @@ class Display{
       lcd.print("ИЯ");
       lcd.setCursor(0, 2);
       lcd.print("HAЖMИTE KHOПKY CTAPT");
+      /*lcd.print("TO START MEASURE");
+      lcd.setCursor(0, 2);
+      lcd.print("PRESS START BUTTON"); */   
     break;
     case 11: // время свечения 
       if(first_com11_print){ // (arr[0]==-1) добавлено, так как при выходе из настроек надо удалять 
@@ -810,9 +834,11 @@ class Display{
 
   void update_charge(){ // этот метод должен вызываться в loop (или любом другом цикле), он считывает данные с делителя 12В и делает усреднение по заранее заданному числу измерений. Если процент меньше текущего, то он автоматически обновляется на экране
     sum_charge_12+=charge.get_delitel_12(); // здесь get_delitel
+    sum_led_block+=charge.get_delitel_led();
     sum_led+=charge.get_delitel_led();
     counter_12++;
     counter_led++;
+    int delta = charge.get_delta();
     if(counter_12==max_iter_12){
       float medium_12 = sum_charge_12/max_iter_12;
       int percent_tmp_12 = charge.convert_charge_to_percent(medium_12);
@@ -823,15 +849,40 @@ class Display{
       counter_12=0;
       sum_charge_12=0;
     } 
-    if(counter_led==max_iter_led){
-      float medium_led = sum_led/max_iter_led;
-      int percent_tmp_led = charge.convert_led_to_result(medium_led);      
-      if(percent_tmp_led != percent_led){
-        percent_led = percent_tmp_led;
+    if(counter_led%max_iter_block_led==0){ // основная проблема на данный момент - при включении светодиода происходит просадка (до 10 мкМ). Надо как-то решить этот вопрос! и еще, несмотря на то, что дельта = 5мкМ, показания меняются с 370 до 373, то есть изменение меньше Дельты. с чем это связано?
+      float medium_led_delitel = sum_led_block/max_iter_block_led;
+      int tmp = medium_led_now;
+      medium_led_now = charge.convert_led_to_result(medium_led_delitel);
+      medium_led_old = tmp;
+      if(abs(medium_led_now - led_now_print/*medium_led_old*/)>=delta){
+        counter_print_led_after_change_brightness = 0;
+        percent_led = sum_led/counter_led;
+        counter_led=0;
+        sum_led=0;
+        percent_led = charge.convert_led_to_result(percent_led);
+        print_led(percent_led);
+      } 
+      else if(counter_led == max_iter_led){ // тут проблема!
+        percent_led = sum_led/counter_led;
+        counter_led=0;
+        sum_led=0;
+        percent_led = charge.convert_led_to_result(percent_led);
+        if(abs(percent_led - led_now_print)>=delta){
+          //counter_print_led_after_change_brightness = 0;
+          print_led(percent_led);
+        }else{
+          percent_led = led_now_print;
+        }
+      }
+      else if(counter_print_led_after_change_brightness < 3){ // возможно, уменьшить до 3-4
+        counter_print_led_after_change_brightness++;
+        percent_led = sum_led/counter_led;
+        counter_led=0;
+        sum_led=0;
+        percent_led = charge.convert_led_to_result(percent_led);
         print_led(percent_led);
       }
-      counter_led=0;
-      sum_led=0;      
+      sum_led_block=0;    
     }       
   }
 
@@ -1279,6 +1330,16 @@ class Settings{ // класс для работы с настройками
     uint32_t res = preferences.getUInt("measure_number", 0);
     preferences.end();
     return res;
+  }
+};
+
+class check_device{
+  private:
+  
+
+  public:
+  int get_failure(){ // 0- если все хорошо
+
   }
 };
 
